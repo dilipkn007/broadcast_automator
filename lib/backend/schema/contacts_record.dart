@@ -1,0 +1,154 @@
+import 'dart:async';
+
+import 'package:collection/collection.dart';
+
+import '/backend/schema/util/supabase_util.dart';
+import '/backend/schema/util/schema_util.dart';
+import '/backend/supabase/supabase_config.dart';
+
+import 'index.dart';
+import '/flutter_flow/flutter_flow_util.dart';
+
+class ContactsRecord extends SupabaseRecord {
+  ContactsRecord._(
+    String id,
+    Map<String, dynamic> data,
+  ) : super(id, data) {
+    _initializeFields();
+  }
+
+  // "campaign_id" field.
+  String? _campaignId;
+  String get campaignId => _campaignId ?? '';
+  bool hasCampaignId() => _campaignId != null;
+
+  // "name" field.
+  String? _name;
+  String get name => _name ?? '';
+  bool hasName() => _name != null;
+
+  // "phone" field.
+  String? _phone;
+  String get phone => _phone ?? '';
+  bool hasPhone() => _phone != null;
+
+  // "status" field.
+  String? _status;
+  String get status => _status ?? '';
+  bool hasStatus() => _status != null;
+
+  void _initializeFields() {
+    _campaignId = snapshotData['campaign_id'] as String?;
+    _name = snapshotData['name'] as String?;
+    _phone = snapshotData['phone'] as String?;
+    _status = snapshotData['status'] as String?;
+  }
+
+  static String get tableName => 'contacts';
+
+  static ContactsRecord fromMap(Map<String, dynamic> data) => ContactsRecord._(
+        (data['id'] ?? '').toString(),
+        mapFromSupabase(data),
+      );
+
+  static Stream<ContactsRecord> getDocument(String id) async* {
+    if (id.isEmpty) return;
+    try {
+      final doc = await getDocumentOnce(id);
+      if (doc != null) yield doc;
+    } catch (e) {
+      print('Initial getDocumentOnce error for $tableName: $e');
+    }
+
+    final controller = StreamController<ContactsRecord>();
+    StreamSubscription? sub;
+    try {
+      final stream = supabase
+          .from(tableName)
+          .stream(primaryKey: ['id'])
+          .eq('id', id)
+          .map((rows) => rows.isNotEmpty ? fromMap(rows.first) : null)
+          .where((e) => e != null)
+          .map((e) => e!);
+
+      sub = stream.listen(
+        (data) {
+          if (!controller.isClosed) controller.add(data);
+        },
+        onError: (err) {
+          print('Realtime error on $tableName getDocument: $err');
+        },
+        cancelOnError: false,
+      );
+    } catch (e) {
+      print('Failed to setup realtime stream for $tableName: $e');
+    }
+
+    try {
+      await for (final data in controller.stream) {
+        yield data;
+      }
+    } finally {
+      await sub?.cancel();
+      await controller.close();
+    }
+  }
+
+  static Future<ContactsRecord?> getDocumentOnce(String id) async {
+    try {
+      final rows = await supabase.from(tableName).select().eq('id', id).timeout(const Duration(seconds: 4));
+      if (rows.isEmpty) return null;
+      return fromMap(rows.first as Map<String, dynamic>);
+    } catch (e) {
+      print('Error in getDocumentOnce for $tableName: $e');
+      return null;
+    }
+  }
+
+  @override
+  String toString() => 'ContactsRecord(id: $id, data: $snapshotData)';
+
+  @override
+  int get hashCode => id.hashCode;
+
+  @override
+  bool operator ==(other) =>
+      other is ContactsRecord && id.hashCode == other.id.hashCode;
+}
+
+Map<String, dynamic> createContactsRecordData({
+  String? campaignId,
+  String? name,
+  String? phone,
+  String? status,
+}) {
+  final supabaseData = mapToSupabase(
+    <String, dynamic>{
+      'campaign_id': campaignId,
+      'name': name,
+      'phone': phone,
+      'status': status,
+    }.withoutNulls,
+  );
+
+  return supabaseData;
+}
+
+class ContactsRecordDocumentEquality implements Equality<ContactsRecord> {
+  const ContactsRecordDocumentEquality();
+
+  @override
+  bool equals(ContactsRecord? e1, ContactsRecord? e2) {
+    return e1?.campaignId == e2?.campaignId &&
+        e1?.name == e2?.name &&
+        e1?.phone == e2?.phone &&
+        e1?.status == e2?.status;
+  }
+
+  @override
+  int hash(ContactsRecord? e) =>
+      const ListEquality().hash([e?.campaignId, e?.name, e?.phone, e?.status]);
+
+  @override
+  bool isValidKey(Object? o) => o is ContactsRecord;
+}
