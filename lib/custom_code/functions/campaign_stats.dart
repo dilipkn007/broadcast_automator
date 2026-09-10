@@ -16,12 +16,19 @@ dynamic campaignStats(
   List<ContactsRecord> contacts,
   String campaignId,
 ) {
-  final targetId = campaignId ?? "";
-  final all_contacts =
-      contacts.where((ct) => ct.campaignId == targetId).toList();
-  final sent = all_contacts.where((ct) => ct.status == "Sent").length;
-  final failed = all_contacts.where((ct) => ct.status == "Failed").length;
-  final skipped = all_contacts.where((ct) => ct.status == "Skipped").length;
+  final targetId = campaignId.trim();
+  final all_contacts = targetId.isEmpty
+      ? contacts
+      : contacts.where((ct) => ct.campaignId == targetId).toList();
+  final sent = all_contacts
+      .where((ct) => ct.status.trim().toLowerCase() == 'sent')
+      .length;
+  final failed = all_contacts
+      .where((ct) => ct.status.trim().toLowerCase() == 'failed')
+      .length;
+  final skipped = all_contacts
+      .where((ct) => ct.status.trim().toLowerCase() == 'skipped')
+      .length;
   return {
     "total": all_contacts.length.toString(),
     "sent": sent.toString(),

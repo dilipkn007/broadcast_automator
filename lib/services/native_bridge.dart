@@ -38,6 +38,12 @@ class NativeBridge {
     return _toMap(result);
   }
 
+  /// Full report of the last broadcast job including duration and contact results.
+  static Future<Map<String, dynamic>> getBroadcastReport() async {
+    final result = await _channel.invokeMethod('getBroadcastReport');
+    return _toMap(result);
+  }
+
   static Future<bool> isAccessibilityEnabled() async {
     final result = await _channel.invokeMethod('isAccessibilityEnabled');
     return result == true;
@@ -71,7 +77,7 @@ class NativeBridge {
     return _toMap(result);
   }
 
-  /// Persists the automation job (contacts + message + settings) natively so
+  /// Persists the automation job (contacts + message + settings + attachments) natively so
   /// the accessibility service can run it.
   static Future<void> saveJob({
     required String campaignId,
@@ -84,6 +90,7 @@ class NativeBridge {
     required List<Map<String, String>> contacts,
     String? attachmentPath,
     String? attachmentMime,
+    List<Map<String, String>>? attachments,
     int? autoPauseMinutes,
   }) async {
     await _channel.invokeMethod('saveJob', {
@@ -97,6 +104,7 @@ class NativeBridge {
       'contacts': contacts,
       'attachmentPath': attachmentPath,
       'attachmentMime': attachmentMime,
+      'attachments': attachments,
       'autoPauseMinutes': autoPauseMinutes,
     });
   }
@@ -118,11 +126,15 @@ String normalizeWhatsAppNumber(String phone) {
   return digits;
 }
 
-/// Replaces `{Placeholder}` tokens in [message] with contact values.
+/// Replaces `{Placeholder}` or `{{Placeholder}}` tokens in [message] with contact values (case-insensitive).
 String resolveMessageTemplate(String message, Map<String, String> values) {
   var resolved = message;
   values.forEach((key, value) {
-    resolved = resolved.replaceAll('{$key}', value);
+    final pattern = RegExp(
+      '\\{\\{\\s*${RegExp.escape(key)}\\s*\\}\\}|\\{\\s*${RegExp.escape(key)}\\s*\\}',
+      caseSensitive: false,
+    );
+    resolved = resolved.replaceAll(pattern, value);
   });
   return resolved;
 }

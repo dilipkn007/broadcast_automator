@@ -55,86 +55,67 @@ class _ReportStatCardWidgetState extends State<ReportStatCardWidget> {
     return Container(
       decoration: BoxDecoration(
         color: FlutterFlowTheme.of(context).surfaceVariant,
-        borderRadius: BorderRadius.circular(20.0),
+        borderRadius: BorderRadius.circular(18.0),
         shape: BoxShape.rectangle,
       ),
       child: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Container(
-          child: Row(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.start,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 40.0,
-                height: 40.0,
-                decoration: BoxDecoration(
-                  color: valueOrDefault<Color>(
-                    widget!.color,
-                    FlutterFlowTheme.of(context).primary,
+        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 12.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.max,
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 38.0,
+              height: 38.0,
+              decoration: BoxDecoration(
+                color: valueOrDefault<Color>(
+                  widget!.color,
+                  FlutterFlowTheme.of(context).primary,
+                ),
+                borderRadius: BorderRadius.circular(10.0),
+                shape: BoxShape.rectangle,
+              ),
+              alignment: Alignment.center,
+              child: widget!.icon ?? const SizedBox(),
+            ),
+            const SizedBox(width: 10.0),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    valueOrDefault<String>(
+                      widget!.label,
+                      'Total Contacts',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      color: FlutterFlowTheme.of(context).secondaryText,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      height: 1.2,
+                    ),
                   ),
-                  shape: BoxShape.rectangle,
-                ),
-                child: widget!.icon!,
-              ),
-              Expanded(
-                flex: 1,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      valueOrDefault<String>(
-                        widget!.label,
-                        'Total Contacts',
-                      ),
-                      maxLines: 1,
-                      style: FlutterFlowTheme.of(context).labelSmall.override(
-                            font: GoogleFonts.inter(
-                              fontWeight: FlutterFlowTheme.of(context)
-                                  .labelSmall
-                                  .fontWeight,
-                              fontStyle: FlutterFlowTheme.of(context)
-                                  .labelSmall
-                                  .fontStyle,
-                            ),
-                            color: FlutterFlowTheme.of(context).secondaryText,
-                            letterSpacing: 0.0,
-                            fontWeight: FlutterFlowTheme.of(context)
-                                .labelSmall
-                                .fontWeight,
-                            fontStyle: FlutterFlowTheme.of(context)
-                                .labelSmall
-                                .fontStyle,
-                            lineHeight: 1.2,
-                          ),
-                      overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 2.0),
+                  Text(
+                    widget!.value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.plusJakartaSans(
+                      color: FlutterFlowTheme.of(context).primaryText,
+                      fontSize: 18.0,
+                      fontWeight: FontWeight.bold,
+                      height: 1.3,
                     ),
-                    Text(
-                      widget!.value,
-                      style: FlutterFlowTheme.of(context).titleMedium.override(
-                            font: GoogleFonts.plusJakartaSans(
-                              fontWeight: FontWeight.bold,
-                              fontStyle: FlutterFlowTheme.of(context)
-                                  .titleMedium
-                                  .fontStyle,
-                            ),
-                            color: FlutterFlowTheme.of(context).primaryText,
-                            letterSpacing: 0.0,
-                            fontWeight: FontWeight.bold,
-                            fontStyle: FlutterFlowTheme.of(context)
-                                .titleMedium
-                                .fontStyle,
-                            lineHeight: 1.4,
-                          ),
-                    ),
-                  ].divide(SizedBox(height: 4.0)),
-                ),
+                  ),
+                ],
               ),
-            ].divide(SizedBox(width: 16.0)),
-          ),
+            ),
+          ],
         ),
       ),
     );

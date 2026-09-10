@@ -3,10 +3,12 @@ package com.makhanchor.broadcastautomator
 import android.accessibilityservice.AccessibilityService
 import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -73,6 +75,7 @@ class WhatsAppAutomationService : AccessibilityService() {
     private var currentIndex = 0
     private var sent = 0
     private var failed = 0
+    private var skipped = 0
     private var elapsedRunTimeMs = 0L
     private var lastResumeTimeMs = 0L
 
@@ -142,8 +145,14 @@ class WhatsAppAutomationService : AccessibilityService() {
         currentIndex = 0
         sent = 0
         failed = 0
+        skipped = 0
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
+
+        BroadcastStore.setStartTime(this, System.currentTimeMillis())
+        loaded.contacts.forEach { c ->
+            BroadcastStore.recordContactResult(this, c.id, c.name, c.phone, "Pending")
+        }
 
         updateCampaign(mapOf("status" to "Sending", "current_index" to 0))
         pushStatus()
@@ -171,6 +180,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (!running) return
         running = false
         stopped = true
+        BroadcastStore.setEndTime(this, System.currentTimeMillis())
         job?.let {
             updateCampaign(mapOf("status" to "Stopped"))
             BroadcastStore.clearJob(this)
@@ -188,6 +198,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun finishJob() {
         running = false
+        BroadcastStore.setEndTime(this, System.currentTimeMillis())
         val j = job
         if (j != null) {
             updateCampaign(mapOf("status" to "Completed", "current_index" to j.contacts.size))
@@ -242,19 +253,69 @@ class WhatsAppAutomationService : AccessibilityService() {
         }
 
         val message = resolveMessage(j.message, contact.name)
-        val intent: Intent = if (!j.attachmentPath.isNullOrEmpty() && !j.attachmentMime.isNullOrEmpty()) {
-            val file = File(j.attachmentPath)
-            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
-            Intent(Intent.ACTION_SEND).apply {
-                type = j.attachmentMime
-                putExtra(Intent.EXTRA_TEXT, message)
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra("jid", "$phone@s.whatsapp.net")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
+
+        val intent: Intent = when {
+            validAttachments.size > 1 -> {
+                val uriList = ArrayList<Uri>()
+                validAttachments.forEach { att ->
+                    val file = File(att.path)
+                    val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                    uriList.add(uri)
+                    grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                var commonMime = "*/*"
+                val mimeTypes = validAttachments.map { it.mimeType.lowercase() }.toSet()
+                if (mimeTypes.all { it.startsWith("image/") }) {
+                    commonMime = "image/*"
+                } else if (mimeTypes.all { it.startsWith("video/") }) {
+                    commonMime = "video/*"
+                } else if (mimeTypes.all { it.startsWith("audio/") }) {
+                    commonMime = "audio/*"
+                }
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = commonMime
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, uriList)
+                    val clipData = ClipData.newUri(contentResolver, "attachment_0", uriList.first())
+                    for (i in 1 until uriList.size) {
+                        clipData.addItem(ClipData.Item(uriList[i]))
+                    }
+                    this.clipData = clipData
+                    putExtra("jid", "$phone@s.whatsapp.net")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
             }
-        } else {
-            val link = "https://wa.me/$phone?text=" + URLEncoder.encode(message, "UTF-8")
-            Intent(Intent.ACTION_VIEW, Uri.parse(link))
+            validAttachments.size == 1 -> {
+                val att = validAttachments.first()
+                val file = File(att.path)
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                Intent(Intent.ACTION_SEND).apply {
+                    type = att.mimeType.ifEmpty { "*/*" }
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newUri(contentResolver, "attachment", uri)
+                    putExtra("jid", "$phone@s.whatsapp.net")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            !j.attachmentPath.isNullOrEmpty() && !j.attachmentMime.isNullOrEmpty() && File(j.attachmentPath).exists() -> {
+                val file = File(j.attachmentPath)
+                val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+                grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                Intent(Intent.ACTION_SEND).apply {
+                    type = j.attachmentMime
+                    putExtra(Intent.EXTRA_TEXT, message)
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    clipData = ClipData.newUri(contentResolver, "attachment", uri)
+                    putExtra("jid", "$phone@s.whatsapp.net")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            }
+            else -> {
+                val link = "https://wa.me/$phone?text=" + URLEncoder.encode(message, "UTF-8")
+                Intent(Intent.ACTION_VIEW, Uri.parse(link))
+            }
         }
         intent.setPackage(pkg)
         intent.addFlags(
@@ -303,6 +364,11 @@ class WhatsAppAutomationService : AccessibilityService() {
             )
             return
         }
+        val message = resolveMessage(j.message, contact.name)
+        val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
+        if (validAttachments.size > 1 && message.isNotEmpty()) {
+            populateCaptionIfPresent(root, message)
+        }
         val send = findSendButton(root)
         if (send != null) {
             val clicked = performClickOnNearestClickable(send)
@@ -338,6 +404,7 @@ class WhatsAppAutomationService : AccessibilityService() {
     private fun handleInvalid(contact: WaContact) {
         val j = job ?: return
         if (j.skipInvalid) {
+            skipped++
             markContact(contact, "Skipped")
         } else {
             failed++
@@ -377,8 +444,10 @@ class WhatsAppAutomationService : AccessibilityService() {
     }
 
     private fun markContact(contact: WaContact, status: String) {
-        if (contact.id.isEmpty()) return
-        SupabaseSync.patch("contacts", contact.id, mapOf("status" to status))
+        BroadcastStore.recordContactResult(this, contact.id, contact.name, contact.phone, status)
+        if (contact.id.isNotEmpty()) {
+            SupabaseSync.patch("contacts", contact.id, mapOf("status" to status))
+        }
     }
 
     private fun updateCampaign(fields: Map<String, Any>) {
@@ -418,6 +487,7 @@ class WhatsAppAutomationService : AccessibilityService() {
             j?.contacts?.size ?: 0,
             sent,
             failed,
+            skipped,
         )
         updateOverlay()
     }
@@ -474,8 +544,11 @@ class WhatsAppAutomationService : AccessibilityService() {
     private fun isWhatsAppWindow(packageName: String?): Boolean =
         packageName?.startsWith("com.whatsapp") == true
 
-    private fun resolveMessage(template: String, name: String): String =
-        template.replace("{Name}", name.ifEmpty { "there" })
+    private fun resolveMessage(template: String, name: String): String {
+        val cleanName = name.trim()
+        val regex = Regex("""\{\{\s*name\s*\}\}|\{\s*name\s*\}""", RegexOption.IGNORE_CASE)
+        return regex.replace(template) { cleanName }
+    }
 
     private fun normalizePhone(raw: String): String {
         var digits = raw.filter { it.isDigit() }
@@ -483,6 +556,50 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (digits.startsWith("0")) digits = digits.drop(1)
         if (digits.length == 10) digits = "91$digits"
         return digits
+    }
+
+    private fun populateCaptionIfPresent(root: AccessibilityNodeInfo, message: String): Boolean {
+        if (message.isEmpty()) return false
+        val captionNode = findCaptionInput(root) ?: return false
+        val currentText = captionNode.text?.toString() ?: ""
+        if (currentText == message) {
+            return true
+        }
+        val arguments = Bundle().apply {
+            putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                message,
+            )
+        }
+        return captionNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+    }
+
+    private fun findCaptionInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var fallback: AccessibilityNodeInfo? = null
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val vid = node.viewIdResourceName?.lowercase() ?: ""
+            val cls = node.className?.toString() ?: ""
+            val hint = node.hintText?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+            if (cls.contains("EditText") || node.isEditable) {
+                if (vid.contains("caption") || vid.contains("entry") ||
+                    hint.contains("caption") || hint.contains("message") ||
+                    desc.contains("caption") || desc.contains("message")) {
+                    return node
+                }
+                if (fallback == null) {
+                    fallback = node
+                }
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return fallback
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {

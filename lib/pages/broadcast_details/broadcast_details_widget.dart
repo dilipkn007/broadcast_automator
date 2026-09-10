@@ -55,6 +55,27 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
     _loadAttachments();
   }
 
+  void _insertTemplateVariable(String variable) {
+    final controller = _model.textFieldModel.inputTextController;
+    if (controller == null) return;
+    final text = controller.text;
+    final selection = controller.selection;
+
+    if (selection.isValid && selection.start >= 0 && selection.end >= 0) {
+      final newText = text.replaceRange(selection.start, selection.end, variable);
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.start + variable.length),
+      );
+    } else {
+      final newText = text.isEmpty ? variable : '$text $variable';
+      controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
+      );
+    }
+  }
+
   Future<void> _loadAttachments() async {
     final campaignId = widget.campaignId;
     if (campaignId == null || campaignId.isEmpty) return;
@@ -639,28 +660,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                   borderRadius:
                                                                       8.0,
                                                                   buttonSize:
-                                                                      40.0,
-                                                                  fillColor: Colors
-                                                                      .transparent,
-                                                                  icon: Icon(
-                                                                    Icons
-                                                                        .mood_rounded,
-                                                                    color: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .secondaryText,
-                                                                    size: 20.0,
-                                                                  ),
-                                                                  onPressed:
-                                                                      () {
-                                                                    print(
-                                                                        'IconButton pressed ...');
-                                                                  },
-                                                                ),
-                                                                FlutterFlowIconButton(
-                                                                  borderRadius:
-                                                                      8.0,
-                                                                  buttonSize:
-                                                                      40.0,
+                                                                      36.0,
                                                                   fillColor: Colors
                                                                       .transparent,
                                                                   icon: Icon(
@@ -668,14 +668,50 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                         .alternate_email_rounded,
                                                                     color: FlutterFlowTheme.of(
                                                                             context)
-                                                                        .secondaryText,
+                                                                        .primary,
                                                                     size: 20.0,
                                                                   ),
                                                                   onPressed:
                                                                       () {
-                                                                    print(
-                                                                        'IconButton pressed ...');
+                                                                    _insertTemplateVariable('{{Name}}');
                                                                   },
+                                                                ),
+                                                                InkWell(
+                                                                  splashColor: Colors.transparent,
+                                                                  focusColor: Colors.transparent,
+                                                                  hoverColor: Colors.transparent,
+                                                                  highlightColor: Colors.transparent,
+                                                                  onTap: () => _insertTemplateVariable('{{Name}}'),
+                                                                  borderRadius: BorderRadius.circular(16.0),
+                                                                  child: Container(
+                                                                    padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                                                                    decoration: BoxDecoration(
+                                                                      color: FlutterFlowTheme.of(context).primary.withOpacity(0.12),
+                                                                      borderRadius: BorderRadius.circular(16.0),
+                                                                      border: Border.all(
+                                                                        color: FlutterFlowTheme.of(context).primary.withOpacity(0.3),
+                                                                        width: 1.0,
+                                                                      ),
+                                                                    ),
+                                                                    child: Row(
+                                                                      mainAxisSize: MainAxisSize.min,
+                                                                      children: [
+                                                                        Icon(
+                                                                          Icons.add_rounded,
+                                                                          size: 14.0,
+                                                                          color: FlutterFlowTheme.of(context).primary,
+                                                                        ),
+                                                                        SizedBox(width: 2.0),
+                                                                        Text(
+                                                                          '{{Name}}',
+                                                                          style: FlutterFlowTheme.of(context).labelSmall.copyWith(
+                                                                                color: FlutterFlowTheme.of(context).primary,
+                                                                                fontWeight: FontWeight.bold,
+                                                                              ),
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                  ),
                                                                 ),
                                                               ].divide(SizedBox(
                                                                   width: 8.0)),
@@ -685,7 +721,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                 _model
                                                                     .messageBody,
                                                                 '',
-                                                              ).length} / 160',
+                                                              ).length} chars',
                                                               style: FlutterFlowTheme
                                                                       .of(context)
                                                                   .labelSmall
@@ -720,6 +756,55 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                             ),
                                                           ],
                                                         ),
+                                                        if (_model.messageBody != null &&
+                                                            _model.messageBody!.trim().isNotEmpty &&
+                                                            (_model.messageBody!.contains('{') || _model.messageBody!.contains('{{')))
+                                                          Container(
+                                                            width: double.infinity,
+                                                            margin: EdgeInsets.only(top: 4.0),
+                                                            padding: EdgeInsets.all(12.0),
+                                                            decoration: BoxDecoration(
+                                                              color: FlutterFlowTheme.of(context).primaryBackground,
+                                                              borderRadius: BorderRadius.circular(12.0),
+                                                              border: Border.all(
+                                                                color: FlutterFlowTheme.of(context).alternate,
+                                                                width: 1.0,
+                                                              ),
+                                                            ),
+                                                            child: Column(
+                                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                                              children: [
+                                                                Row(
+                                                                  children: [
+                                                                    Icon(
+                                                                      Icons.auto_awesome_rounded,
+                                                                      size: 14.0,
+                                                                      color: FlutterFlowTheme.of(context).primary,
+                                                                    ),
+                                                                    SizedBox(width: 6.0),
+                                                                    Text(
+                                                                      'Personalized Preview (Sample)',
+                                                                      style: FlutterFlowTheme.of(context).labelSmall.copyWith(
+                                                                            color: FlutterFlowTheme.of(context).primary,
+                                                                            fontWeight: FontWeight.bold,
+                                                                          ),
+                                                                    ),
+                                                                  ],
+                                                                ),
+                                                                SizedBox(height: 6.0),
+                                                                Text(
+                                                                  resolveMessageTemplate(
+                                                                    _model.messageBody ?? '',
+                                                                    {'Name': 'Radha Raman'},
+                                                                  ),
+                                                                  style: FlutterFlowTheme.of(context).bodySmall.copyWith(
+                                                                        color: FlutterFlowTheme.of(context).primaryText,
+                                                                        height: 1.4,
+                                                                      ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
                                                       ].divide(SizedBox(
                                                           height: 16.0)),
                                                     ),
@@ -1589,48 +1674,54 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                   .update({'status': 'Pending'})
                                                   .eq('campaign_id',
                                                       widget!.campaignId!);
-  
-                                              final attachment =
-                                                  _attachments.isNotEmpty
-                                                      ? _attachments.first
-                                                      : null;
-                                                await NativeBridge.saveJob(
-                                                campaignId: widget!.campaignId!,
-                                                campaignName:
-                                                    broadcastDetailsCampaignsRecord
-                                                        .name,
-                                                message:
-                                                    _model.messageBody ?? '',
-                                                delaySeconds:
-                                                    _model.delaySeconds ?? 6,
-                                                randomizeDelay:
-                                                    _model.randomizeDelay ?? true,
-                                                autoRetry:
-                                                    _model.autoRetry ?? false,
-                                                skipInvalid:
-                                                    _model.skipInvalid ?? true,
-                                                contacts: contacts
-                                                        .map((c) => {
-                                                              'id': c.id,
-                                                          'name': c.name,
-                                                          'phone': c.phone,
-                                                        })
-                                                    .toList(),
-                                                attachmentPath:
-                                                    attachment?['path'],
-                                                attachmentMime:
-                                                    attachment?['mimeType'],
-                                                autoPauseMinutes: (_model.autoPauseEnabled ?? false)
-                                                    ? (_model.autoPauseMinutes ?? 10)
-                                                    : 0,
-                                              );
-  
-                                              final started = await NativeBridge
-                                                  .startBroadcast(
-                                                widget!.campaignId!,
-                                              );
-  
-                                              if (!(started['started'] == true)) {
+                                                final attachment =
+                                                   _attachments.isNotEmpty
+                                                       ? _attachments.first
+                                                       : null;
+                                               await NativeBridge.saveJob(
+                                                 campaignId: widget!.campaignId!,
+                                                 campaignName:
+                                                     broadcastDetailsCampaignsRecord
+                                                         .name,
+                                                 message:
+                                                     _model.messageBody ?? '',
+                                                 delaySeconds:
+                                                     _model.delaySeconds ?? 6,
+                                                 randomizeDelay:
+                                                     _model.randomizeDelay ?? true,
+                                                 autoRetry:
+                                                     _model.autoRetry ?? false,
+                                                 skipInvalid:
+                                                     _model.skipInvalid ?? true,
+                                                 contacts: contacts
+                                                     .map((c) => {
+                                                           'id': c.id,
+                                                           'name': c.name,
+                                                           'phone': c.phone,
+                                                         })
+                                                     .toList(),
+                                                 attachmentPath:
+                                                     attachment?['path'],
+                                                 attachmentMime:
+                                                     attachment?['mimeType'],
+                                                 attachments: _attachments
+                                                     .map((a) => {
+                                                           'path': a['path'] ?? '',
+                                                           'mimeType': a['mimeType'] ?? '',
+                                                           'name': a['name'] ?? '',
+                                                         })
+                                                     .where((a) => (a['path'] ?? '').isNotEmpty)
+                                                     .toList(),
+                                                 autoPauseMinutes: (_model.autoPauseEnabled ?? false)
+                                                     ? (_model.autoPauseMinutes ?? 10)
+                                                     : 0,
+                                               );
+
+                                               final started = await NativeBridge
+                                                   .startBroadcast(
+                                                 widget!.campaignId!,
+                                               );
+                                               if (!(started['started'] == true)) {
                                                 if (started[
                                                         'accessibilityEnabled'] ==
                                                     false) {

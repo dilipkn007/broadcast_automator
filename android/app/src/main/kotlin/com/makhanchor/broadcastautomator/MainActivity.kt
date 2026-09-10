@@ -41,6 +41,7 @@ class MainActivity : FlutterActivity() {
                         WhatsAppAutomationService.ACTION_RESUME, result,
                     )
                     "getBroadcastStatus" -> result.success(BroadcastStore.getStatusMap(this))
+                    "getBroadcastReport" -> result.success(BroadcastStore.getReportMap(this))
                     "isAccessibilityEnabled" ->
                         result.success(WhatsAppAutomationService.isAccessibilityEnabled(this))
                     "openAccessibilitySettings" -> {
@@ -156,6 +157,20 @@ class MainActivity : FlutterActivity() {
                 phone = m["phone"]?.toString() ?: "",
             )
         }
+        @Suppress("UNCHECKED_CAST")
+        val rawAttachments = (args["attachments"] as? List<*>) ?: emptyList<Any>()
+        val attachments = rawAttachments.mapNotNull { it as? Map<*, *> }.mapNotNull { m ->
+            val path = m["path"]?.toString() ?: return@mapNotNull null
+            val mimeType = m["mimeType"]?.toString() ?: "*/*"
+            if (path.isNotEmpty()) WaAttachment(path, mimeType) else null
+        }.toMutableList()
+
+        val singlePath = args["attachmentPath"]?.toString()
+        val singleMime = args["attachmentMime"]?.toString() ?: "*/*"
+        if (attachments.isEmpty() && !singlePath.isNullOrEmpty()) {
+            attachments.add(WaAttachment(singlePath, singleMime))
+        }
+
         BroadcastStore.saveJob(
             context = this,
             campaignId = args["campaignId"]?.toString() ?: "",
@@ -166,8 +181,9 @@ class MainActivity : FlutterActivity() {
             autoRetry = args["autoRetry"] == true,
             skipInvalid = args["skipInvalid"] == true,
             contacts = contacts,
-            attachmentPath = args["attachmentPath"]?.toString(),
-            attachmentMime = args["attachmentMime"]?.toString(),
+            attachmentPath = singlePath,
+            attachmentMime = singleMime,
+            attachments = attachments,
             autoPauseMinutes = (args["autoPauseMinutes"] as? Number)?.toInt() ?: 0,
         )
         result.success(true)

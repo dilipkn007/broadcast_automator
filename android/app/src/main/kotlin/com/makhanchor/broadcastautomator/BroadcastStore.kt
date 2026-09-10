@@ -11,6 +11,12 @@ data class WaContact(
     val phone: String,
 )
 
+/** A single media/document attachment to be sent. */
+data class WaAttachment(
+    val path: String,
+    val mimeType: String,
+)
+
 /** The full automation job, persisted between Flutter and the accessibility service. */
 data class WaJob(
     val campaignId: String,
@@ -23,6 +29,7 @@ data class WaJob(
     val contacts: List<WaContact>,
     val attachmentPath: String?,
     val attachmentMime: String?,
+    val attachments: List<WaAttachment> = emptyList(),
     val autoPauseMinutes: Int,
 )
 
@@ -44,6 +51,7 @@ object BroadcastStore {
     private const val KEY_CONTACTS = "job_contacts_json"
     private const val KEY_ATTACHMENT_PATH = "job_attachment_path"
     private const val KEY_ATTACHMENT_MIME = "job_attachment_mime"
+    private const val KEY_ATTACHMENTS = "job_attachments_json"
     private const val KEY_AUTO_PAUSE_MINUTES = "job_auto_pause_minutes"
 
     fun saveJob(
@@ -58,6 +66,7 @@ object BroadcastStore {
         contacts: List<WaContact>,
         attachmentPath: String?,
         attachmentMime: String?,
+        attachments: List<WaAttachment> = emptyList(),
         autoPauseMinutes: Int,
     ) {
         val arr = JSONArray()
@@ -67,6 +76,14 @@ object BroadcastStore {
                     .put("id", c.id)
                     .put("name", c.name)
                     .put("phone", c.phone),
+            )
+        }
+        val attArr = JSONArray()
+        attachments.forEach { a ->
+            attArr.put(
+                JSONObject()
+                    .put("path", a.path)
+                    .put("mimeType", a.mimeType),
             )
         }
         prefs(context).edit()
@@ -80,6 +97,7 @@ object BroadcastStore {
             .putString(KEY_CONTACTS, arr.toString())
             .putString(KEY_ATTACHMENT_PATH, attachmentPath)
             .putString(KEY_ATTACHMENT_MIME, attachmentMime)
+            .putString(KEY_ATTACHMENTS, attArr.toString())
             .putInt(KEY_AUTO_PAUSE_MINUTES, autoPauseMinutes)
             .apply()
     }
@@ -100,6 +118,24 @@ object BroadcastStore {
                 ),
             )
         }
+
+        val attJson = p.getString(KEY_ATTACHMENTS, "[]") ?: "[]"
+        val attachments = ArrayList<WaAttachment>()
+        val attArr = JSONArray(attJson)
+        for (i in 0 until attArr.length()) {
+            val o = attArr.getJSONObject(i)
+            val path = o.optString("path")
+            val mime = o.optString("mimeType")
+            if (path.isNotEmpty()) {
+                attachments.add(WaAttachment(path = path, mimeType = mime))
+            }
+        }
+        val singlePath = p.getString(KEY_ATTACHMENT_PATH, null)
+        val singleMime = p.getString(KEY_ATTACHMENT_MIME, null)
+        if (attachments.isEmpty() && !singlePath.isNullOrEmpty()) {
+            attachments.add(WaAttachment(path = singlePath, mimeType = singleMime ?: "*/*"))
+        }
+
         return WaJob(
             campaignId = campaignId,
             campaignName = p.getString(KEY_CAMPAIGN_NAME, "") ?: "",
@@ -109,8 +145,9 @@ object BroadcastStore {
             autoRetry = p.getBoolean(KEY_RETRY, false),
             skipInvalid = p.getBoolean(KEY_SKIP_INVALID, false),
             contacts = contacts,
-            attachmentPath = p.getString(KEY_ATTACHMENT_PATH, null),
-            attachmentMime = p.getString(KEY_ATTACHMENT_MIME, null),
+            attachmentPath = singlePath,
+            attachmentMime = singleMime,
+            attachments = attachments,
             autoPauseMinutes = p.getInt(KEY_AUTO_PAUSE_MINUTES, 0),
         )
     }
@@ -119,7 +156,7 @@ object BroadcastStore {
         prefs(context).edit().remove(KEY_CAMPAIGN_ID).apply()
     }
 
-    // ---- Status ----
+    // ---- Status & Report ----
     private const val KEY_ST_CAMPAIGN_ID = "status_campaign_id"
     private const val KEY_ST_CAMPAIGN_NAME = "status_campaign_name"
     private const val KEY_ST_RUNNING = "status_running"
@@ -128,6 +165,10 @@ object BroadcastStore {
     private const val KEY_ST_TOTAL = "status_total"
     private const val KEY_ST_SENT = "status_sent"
     private const val KEY_ST_FAILED = "status_failed"
+    private const val KEY_ST_SKIPPED = "status_skipped"
+    private const val KEY_ST_START_TIME = "status_start_time"
+    private const val KEY_ST_END_TIME = "status_end_time"
+    private const val KEY_ST_RESULTS = "status_contact_results_json"
 
     fun setStatus(
         context: Context,
@@ -139,17 +180,65 @@ object BroadcastStore {
         total: Int,
         sent: Int,
         failed: Int,
+        skipped: Int = 0,
     ) {
-        prefs(context).edit()
-            .putString(KEY_ST_CAMPAIGN_ID, campaignId)
-            .putString(KEY_ST_CAMPAIGN_NAME, campaignName)
+        val editor = prefs(context).edit()
             .putBoolean(KEY_ST_RUNNING, running)
             .putBoolean(KEY_ST_PAUSED, paused)
             .putInt(KEY_ST_CURRENT, currentIndex)
             .putInt(KEY_ST_TOTAL, total)
             .putInt(KEY_ST_SENT, sent)
             .putInt(KEY_ST_FAILED, failed)
+            .putInt(KEY_ST_SKIPPED, skipped)
+        if (campaignId != null) editor.putString(KEY_ST_CAMPAIGN_ID, campaignId)
+        if (campaignName != null) editor.putString(KEY_ST_CAMPAIGN_NAME, campaignName)
+        editor.apply()
+    }
+
+    fun setStartTime(context: Context, startTimeMs: Long) {
+        prefs(context).edit()
+            .putLong(KEY_ST_START_TIME, startTimeMs)
+            .putLong(KEY_ST_END_TIME, 0L)
+            .putString(KEY_ST_RESULTS, "[]")
             .apply()
+    }
+
+    fun setEndTime(context: Context, endTimeMs: Long) {
+        prefs(context).edit()
+            .putLong(KEY_ST_END_TIME, endTimeMs)
+            .apply()
+    }
+
+    fun recordContactResult(
+        context: Context,
+        id: String,
+        name: String,
+        phone: String,
+        status: String,
+    ) {
+        val p = prefs(context)
+        val raw = p.getString(KEY_ST_RESULTS, "[]") ?: "[]"
+        val arr = try { JSONArray(raw) } catch (_: Exception) { JSONArray() }
+        var replaced = false
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            if ((id.isNotEmpty() && obj.optString("id") == id) ||
+                (phone.isNotEmpty() && obj.optString("phone") == phone)) {
+                obj.put("status", status)
+                replaced = true
+                break
+            }
+        }
+        if (!replaced) {
+            arr.put(
+                JSONObject()
+                    .put("id", id)
+                    .put("name", name)
+                    .put("phone", phone)
+                    .put("status", status),
+            )
+        }
+        p.edit().putString(KEY_ST_RESULTS, arr.toString()).apply()
     }
 
     fun getStatus(context: Context): JSONObject {
@@ -163,6 +252,7 @@ object BroadcastStore {
             .put("total", p.getInt(KEY_ST_TOTAL, 0))
             .put("sent", p.getInt(KEY_ST_SENT, 0))
             .put("failed", p.getInt(KEY_ST_FAILED, 0))
+            .put("skipped", p.getInt(KEY_ST_SKIPPED, 0))
     }
 
     /** Status as a plain map, safe to pass through a MethodChannel. */
@@ -177,6 +267,52 @@ object BroadcastStore {
             "total" to p.getInt(KEY_ST_TOTAL, 0),
             "sent" to p.getInt(KEY_ST_SENT, 0),
             "failed" to p.getInt(KEY_ST_FAILED, 0),
+            "skipped" to p.getInt(KEY_ST_SKIPPED, 0),
+        )
+    }
+
+    /** Full report map including contact-by-contact status and calculated duration. */
+    fun getReportMap(context: Context): Map<String, Any?> {
+        val p = prefs(context)
+        val startTime = p.getLong(KEY_ST_START_TIME, 0L)
+        val endTime = p.getLong(KEY_ST_END_TIME, 0L)
+        val durationSeconds = if (startTime > 0L) {
+            val end = if (endTime > startTime) endTime else System.currentTimeMillis()
+            ((end - startTime) / 1000).toInt()
+        } else {
+            0
+        }
+
+        val resultsJson = p.getString(KEY_ST_RESULTS, "[]") ?: "[]"
+        val contactsList = ArrayList<Map<String, String>>()
+        try {
+            val arr = JSONArray(resultsJson)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                contactsList.add(
+                    mapOf(
+                        "id" to o.optString("id", ""),
+                        "name" to o.optString("name", ""),
+                        "phone" to o.optString("phone", ""),
+                        "status" to o.optString("status", ""),
+                    ),
+                )
+            }
+        } catch (_: Exception) {
+        }
+
+        return mapOf(
+            "campaignId" to p.getString(KEY_ST_CAMPAIGN_ID, null),
+            "campaignName" to p.getString(KEY_ST_CAMPAIGN_NAME, null),
+            "running" to p.getBoolean(KEY_ST_RUNNING, false),
+            "paused" to p.getBoolean(KEY_ST_PAUSED, false),
+            "currentIndex" to p.getInt(KEY_ST_CURRENT, 0),
+            "total" to p.getInt(KEY_ST_TOTAL, 0),
+            "sent" to p.getInt(KEY_ST_SENT, 0),
+            "failed" to p.getInt(KEY_ST_FAILED, 0),
+            "skipped" to p.getInt(KEY_ST_SKIPPED, 0),
+            "durationSeconds" to durationSeconds,
+            "contacts" to contactsList,
         )
     }
 
@@ -189,6 +325,7 @@ object BroadcastStore {
             .putInt(KEY_ST_TOTAL, 0)
             .putInt(KEY_ST_SENT, 0)
             .putInt(KEY_ST_FAILED, 0)
+            .putInt(KEY_ST_SKIPPED, 0)
             .apply()
     }
 }
