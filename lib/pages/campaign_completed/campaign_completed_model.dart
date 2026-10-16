@@ -21,6 +21,8 @@ class CampaignCompletedModel extends FlutterFlowModel<CampaignCompletedWidget> {
   late ButtonModel buttonModel2;
   // Model for Button.
   late ButtonModel buttonModel3;
+  // Model for Button.
+  late ButtonModel buttonModel4;
 
   @override
   void initState(BuildContext context) {
@@ -31,6 +33,7 @@ class CampaignCompletedModel extends FlutterFlowModel<CampaignCompletedWidget> {
     buttonModel1 = createModel(context, () => ButtonModel());
     buttonModel2 = createModel(context, () => ButtonModel());
     buttonModel3 = createModel(context, () => ButtonModel());
+    buttonModel4 = createModel(context, () => ButtonModel());
   }
 
   @override
@@ -42,5 +45,6 @@ class CampaignCompletedModel extends FlutterFlowModel<CampaignCompletedWidget> {
     buttonModel1.dispose();
     buttonModel2.dispose();
     buttonModel3.dispose();
+    buttonModel4.dispose();
   }
 }

@@ -102,7 +102,12 @@ GoRouter createRouter(AppStateNotifier appStateNotifier) => GoRouter(
         FFRoute(
           name: CreateBroadcastWidget.routeName,
           path: CreateBroadcastWidget.routePath,
-          builder: (context, params) => CreateBroadcastWidget(),
+          builder: (context, params) => CreateBroadcastWidget(
+            sourceCampaignId: params.getParam(
+              'sourceCampaignId',
+              ParamType.String,
+            ),
+          ),
         ),
         FFRoute(
           name: BroadcastListsWidget.routeName,

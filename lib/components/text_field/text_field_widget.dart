@@ -25,6 +25,8 @@ class TextFieldWidget extends StatefulWidget {
     String? onSubmit,
     String? variant,
     bool? error,
+    bool? readOnly,
+    bool? enabled,
   })  : this.label = label ?? '',
         this.labelPresent = labelPresent ?? false,
         this.helper = helper ?? '',
@@ -36,7 +38,9 @@ class TextFieldWidget extends StatefulWidget {
         this.onChange = onChange ?? '',
         this.onSubmit = onSubmit ?? '',
         this.variant = variant ?? 'ghost',
-        this.error = error ?? false;
+        this.error = error ?? false,
+        this.readOnly = readOnly ?? false,
+        this.enabled = enabled ?? true;
 
   final String label;
   final bool labelPresent;
@@ -52,6 +56,8 @@ class TextFieldWidget extends StatefulWidget {
   final String onSubmit;
   final String variant;
   final bool error;
+  final bool readOnly;
+  final bool enabled;
 
   @override
   State<TextFieldWidget> createState() => _TextFieldWidgetState();
@@ -379,6 +385,8 @@ class _TextFieldWidgetState extends State<TextFieldWidget> {
                     child: TextFormField(
                       controller: _model.inputTextController,
                       focusNode: _model.inputFocusNode,
+                      readOnly: widget.readOnly,
+                      enabled: widget.enabled,
                       obscureText: false,
                       maxLines: null,
                       keyboardType: TextInputType.multiline,

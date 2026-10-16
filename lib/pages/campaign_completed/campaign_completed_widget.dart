@@ -1,5 +1,6 @@
 import '/backend/backend.dart';
 import '/components/button/button_widget.dart';
+import '/components/create_campaign_from_history_sheet.dart';
 import '/components/report_stat_card/report_stat_card_widget.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
@@ -525,6 +526,42 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                       ),
                                       const SizedBox(height: 14.0),
 
+                                      // Create Campaign with These Contacts Button
+                                      InkWell(
+                                        splashColor: Colors.transparent,
+                                        focusColor: Colors.transparent,
+                                        hoverColor: Colors.transparent,
+                                        highlightColor: Colors.transparent,
+                                        onTap: () {
+                                          showCreateCampaignFromHistorySheet(
+                                            context,
+                                            sourceCampaignId: _resolvedCampaignId,
+                                            preloadedContacts: unifiedContacts,
+                                          );
+                                        },
+                                        child: wrapWithModel(
+                                          model: _model.buttonModel4,
+                                          updateCallback: () =>
+                                              safeSetState(() {}),
+                                          child: ButtonWidget(
+                                            icon: const Icon(
+                                              Icons.person_add_alt_1_rounded,
+                                              color: Colors.white,
+                                              size: 20.0,
+                                            ),
+                                            iconPresent: true,
+                                            iconEndPresent: false,
+                                            content: 'Create Campaign with Contacts',
+                                            variant: 'primary',
+                                            size: 'large',
+                                            fullWidth: true,
+                                            loading: false,
+                                            disabled: false,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14.0),
+
                                       // Start New Broadcast Button
                                       InkWell(
                                         splashColor: Colors.transparent,
@@ -532,7 +569,7 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                         hoverColor: Colors.transparent,
                                         highlightColor: Colors.transparent,
                                         onTap: () async {
-                                          context.goNamed(
+                                          context.pushNamed(
                                               CreateBroadcastWidget.routeName);
                                         },
                                         child: wrapWithModel(
@@ -540,15 +577,16 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                           updateCallback: () =>
                                               safeSetState(() {}),
                                           child: ButtonWidget(
-                                            icon: const Icon(
+                                            icon: Icon(
                                               Icons.add_rounded,
-                                              color: Colors.white,
+                                              color: FlutterFlowTheme.of(context)
+                                                  .primaryText,
                                               size: 22.0,
                                             ),
                                             iconPresent: true,
                                             iconEndPresent: false,
                                             content: 'Start New Broadcast',
-                                            variant: 'primary',
+                                            variant: 'outline',
                                             size: 'large',
                                             fullWidth: true,
                                             loading: false,
@@ -939,37 +977,76 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
           if (widget.campaignId.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(24.0, 8.0, 24.0, 24.0),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    context.pushNamed(
-                      BroadcastDetailsWidget.routeName,
-                      queryParameters: {
-                        'campaignId': serializeParam(
-                          widget.campaignId,
-                          ParamType.String,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        showCreateCampaignFromHistorySheet(
+                          context,
+                          sourceCampaignId: widget.campaignId,
+                          preloadedContacts: filteredContacts.isNotEmpty
+                              ? filteredContacts
+                              : widget.contacts,
+                        );
+                      },
+                      icon: const Icon(Icons.person_add_alt_1_rounded, size: 18.0),
+                      label: Text(
+                        _selectedFilter == 'all'
+                            ? 'Create Campaign with Contacts'
+                            : 'Create Campaign with ${_selectedFilter.toUpperCase()} Contacts (${filteredContacts.length})',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primary,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 14.0),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14.0),
                         ),
-                      }.withoutNulls,
-                    );
-                  },
-                  icon: const Icon(Icons.tune_rounded, size: 18.0),
-                  label: const Text('Open Full Campaign Details'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primary,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14.0),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14.0),
-                    ),
-                    textStyle: GoogleFonts.inter(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w600,
+                        textStyle: GoogleFonts.inter(
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 10.0),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        context.pushNamed(
+                          BroadcastDetailsWidget.routeName,
+                          queryParameters: {
+                            'campaignId': serializeParam(
+                              widget.campaignId,
+                              ParamType.String,
+                            ),
+                          }.withoutNulls,
+                        );
+                      },
+                      icon: const Icon(Icons.history_rounded, size: 18.0),
+                      label: const Text('Open Historical Campaign Record'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: theme.primaryText,
+                        side: BorderSide(color: theme.alternate, width: 1.0),
+                        padding: const EdgeInsets.symmetric(vertical: 13.0),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14.0),
+                        ),
+                        textStyle: GoogleFonts.inter(
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],

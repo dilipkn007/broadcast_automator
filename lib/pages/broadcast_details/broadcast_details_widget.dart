@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '/components/create_campaign_from_history_sheet.dart';
 import '/services/native_bridge.dart';
 import 'broadcast_details_model.dart';
 export 'broadcast_details_model.dart';
@@ -147,7 +148,11 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
     }
   }
 
-  Widget _buildAttachmentThumb(BuildContext context, Map<String, String> attachment) {
+  Widget _buildAttachmentThumb(
+    BuildContext context,
+    Map<String, String> attachment, {
+    bool isCompleted = false,
+  }) {
     final name = attachment['name'] ?? 'Attachment';
     return SizedBox(
       width: 100.0,
@@ -193,6 +198,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
               ),
             ),
           ),
+          if (!isCompleted)
           Positioned(
             top: 4.0,
             right: 4.0,
@@ -260,6 +266,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
         }
 
         final broadcastDetailsCampaignsRecord = snapshot.data!;
+        final isCompleted = broadcastDetailsCampaignsRecord.status.trim().toLowerCase() == 'completed';
 
         if (_model.messageBody == null) {
           _model.messageBody = broadcastDetailsCampaignsRecord.messageBody;
@@ -536,6 +543,55 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
+                                          if (isCompleted)
+                                            Container(
+                                              width: double.infinity,
+                                              margin: const EdgeInsets.only(bottom: 16.0),
+                                              padding: const EdgeInsets.all(14.0),
+                                              decoration: BoxDecoration(
+                                                color: FlutterFlowTheme.of(context).primary.withOpacity(0.08),
+                                                borderRadius: BorderRadius.circular(12.0),
+                                                border: Border.all(
+                                                  color: FlutterFlowTheme.of(context).primary.withOpacity(0.25),
+                                                  width: 1.0,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Icon(
+                                                    Icons.history_rounded,
+                                                    color: FlutterFlowTheme.of(context).primary,
+                                                    size: 20.0,
+                                                  ),
+                                                  const SizedBox(width: 10.0),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          'Historical Campaign Record',
+                                                          style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                            font: GoogleFonts.plusJakartaSans(
+                                                              fontWeight: FontWeight.bold,
+                                                            ),
+                                                            color: FlutterFlowTheme.of(context).primary,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 2.0),
+                                                        Text(
+                                                          'This campaign has finished running and is locked as a permanent history record. Message and media cannot be edited. You can reuse its contacts for a new campaign below.',
+                                                          style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                            font: GoogleFonts.inter(),
+                                                            color: FlutterFlowTheme.of(context).secondaryText,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
                                           Column(
                                             mainAxisSize: MainAxisSize.min,
                                             mainAxisAlignment:
@@ -633,6 +689,8 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                             onSubmit: '',
                                                             variant: 'ghost',
                                                             error: false,
+                                                            readOnly: isCompleted,
+                                                            enabled: !isCompleted,
                                                           ),
                                                         ),
                                                         Row(
@@ -645,6 +703,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                               CrossAxisAlignment
                                                                   .center,
                                                           children: [
+                                                            if (!isCompleted)
                                                             Row(
                                                               mainAxisSize:
                                                                   MainAxisSize
@@ -864,7 +923,11 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                           lineHeight: 1.3,
                                                         ),
                                                   ),
-                                                  Text(
+                                                  if (!isCompleted)
+                                                    InkWell(
+                                                      onTap: () =>
+                                                          _pickAndAddAttachment(),
+                                                      child: Text(
                                                     'Add +',
                                                     style: FlutterFlowTheme.of(
                                                             context)
@@ -899,6 +962,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                   .fontStyle,
                                                           lineHeight: 1.3,
                                                         ),
+                                                    ),
                                                   ),
                                                 ],
                                               ),
@@ -913,15 +977,29 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                   crossAxisAlignment:
                                                       CrossAxisAlignment.center,
                                                   children: [
+                                                    if (_attachments.isEmpty && isCompleted)
+                                                      Padding(
+                                                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                                        child: Text(
+                                                          'No attachments in this campaign record.',
+                                                          style: FlutterFlowTheme.of(context).labelMedium.override(
+                                                            font: GoogleFonts.inter(),
+                                                            color: FlutterFlowTheme.of(context).secondaryText,
+                                                            fontStyle: FontStyle.italic,
+                                                          ),
+                                                        ),
+                                                      ),
                                                     ..._attachments.map(
                                                       (attachment) =>
                                                           _buildAttachmentThumb(
                                                         context,
                                                         attachment,
+                                                        isCompleted: isCompleted,
                                                       ),
                                                     ),
-                                                    if (_attachments.isNotEmpty)
+                                                    if (_attachments.isNotEmpty && !isCompleted)
                                                       const SizedBox(width: 16.0),
+                                                    if (!isCompleted)
                                                     InkWell(
                                                       splashColor:
                                                           Colors.transparent,
@@ -1046,7 +1124,10 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                       CrossAxisAlignment
                                                           .stretch,
                                                   children: [
-                                                    Text(
+                                                    Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                      Text(
                                                       'Automation Settings',
                                                       style: FlutterFlowTheme
                                                               .of(context)
@@ -1074,6 +1155,37 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                             lineHeight: 1.4,
                                                           ),
                                                     ),
+                                                        if (isCompleted)
+                                                          Container(
+                                                            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                                                            decoration: BoxDecoration(
+                                                              color: FlutterFlowTheme.of(context).secondaryText.withOpacity(0.12),
+                                                              borderRadius: BorderRadius.circular(6.0),
+                                                            ),
+                                                            child: Row(
+                                                              mainAxisSize: MainAxisSize.min,
+                                                              children: [
+                                                                Icon(
+                                                                  Icons.lock_outline_rounded,
+                                                                  size: 13.0,
+                                                                  color: FlutterFlowTheme.of(context).secondaryText,
+                                                                ),
+                                                                const SizedBox(width: 4.0),
+                                                                Text(
+                                                                  'Locked',
+                                                                  style: FlutterFlowTheme.of(context).bodySmall.override(
+                                                                    font: GoogleFonts.inter(
+                                                                      fontWeight: FontWeight.w600,
+                                                                      fontSize: 11.0,
+                                                                    ),
+                                                                    color: FlutterFlowTheme.of(context).secondaryText,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
                                                     Divider(
                                                       height: 16.0,
                                                       thickness: 1.0,
@@ -1084,7 +1196,11 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                   context)
                                                               .alternate,
                                                     ),
-                                                    wrapWithModel(
+                                                    AbsorbPointer(
+                                                      absorbing: isCompleted,
+                                                      child: Opacity(
+                                                        opacity: isCompleted ? 0.75 : 1.0,
+                                                        child: wrapWithModel(
                                                       model: _model.sliderModel,
                                                       updateCallback: () =>
                                                           safeSetState(() {}),
@@ -1115,7 +1231,13 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                         showTicks: true,
                                                       ),
                                                     ),
-                                                    Column(
+                                                        ),
+                                                      ),
+                                                    AbsorbPointer(
+                                                      absorbing: isCompleted,
+                                                      child: Opacity(
+                                                        opacity: isCompleted ? 0.75 : 1.0,
+                                                        child: Column(
                                                       mainAxisSize:
                                                           MainAxisSize.min,
                                                       mainAxisAlignment:
@@ -1292,6 +1414,8 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                         ].divide(SizedBox(
                                                             height: 8.0)),
                                                       ),
+                                                        ),
+                                                      ),
                                                   ].divide(
                                                       SizedBox(height: 16.0)),
                                                 ),
@@ -1398,19 +1522,68 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                       ),
                                                                     ),
                                                           ),
-                                                          Text(
-                                                            '${contacts.length} Total',
-                                                            style:
-                                                                FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .labelMedium
-                                                                    .override(
-                                                                      font:
-                                                                          GoogleFonts.inter(
-                                                                        color:
-                                                                            FlutterFlowTheme.of(context).secondaryText,
-                                                                      ),
+                                                          Row(
+                                                            mainAxisSize: MainAxisSize.min,
+                                                            children: [
+                                                              Text(
+                                                                '${contacts.length} Total',
+                                                                style: FlutterFlowTheme.of(context).labelMedium.override(
+                                                                  font: GoogleFonts.inter(
+                                                                    color: FlutterFlowTheme.of(context).secondaryText,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                              const SizedBox(width: 10.0),
+                                                              InkWell(
+                                                                onTap: () {
+                                                                  showCreateCampaignFromHistorySheet(
+                                                                    context,
+                                                                    sourceCampaignId: widget.campaignId!,
+                                                                    sourceCampaignName: broadcastDetailsCampaignsRecord.name,
+                                                                    preloadedContacts: contacts
+                                                                        .map((c) => {
+                                                                              'name': c.name,
+                                                                              'phone': c.phone,
+                                                                              'status': c.status,
+                                                                            })
+                                                                        .toList(),
+                                                                  );
+                                                                },
+                                                                borderRadius: BorderRadius.circular(8.0),
+                                                                child: Container(
+                                                                  padding: const EdgeInsets.symmetric(
+                                                                      horizontal: 10.0, vertical: 4.0),
+                                                                  decoration: BoxDecoration(
+                                                                    color: FlutterFlowTheme.of(context).primary.withOpacity(0.12),
+                                                                    borderRadius: BorderRadius.circular(8.0),
+                                                                    border: Border.all(
+                                                                      color: FlutterFlowTheme.of(context).primary,
+                                                                      width: 1.0,
                                                                     ),
+                                                                  ),
+                                                                  child: Row(
+                                                                    mainAxisSize: MainAxisSize.min,
+                                                                    children: [
+                                                                      Icon(
+                                                                        Icons.person_add_alt_1_rounded,
+                                                                        size: 14.0,
+                                                                        color: FlutterFlowTheme.of(context).primary,
+                                                                      ),
+                                                                      const SizedBox(width: 4.0),
+                                                                      Text(
+                                                                        'Reuse Contacts',
+                                                                        style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                                          font: GoogleFonts.inter(
+                                                                            fontWeight: FontWeight.bold,
+                                                                          ),
+                                                                          color: FlutterFlowTheme.of(context).primary,
+                                                                        ),
+                                                                      ),
+                                                                    ],
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                            ],
                                                           ),
                                                         ],
                                                       ),
@@ -1581,6 +1754,86 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.center,
                                       children: [
+                                        if (isCompleted) ...[
+                                          Expanded(
+                                            flex: 1,
+                                            child: InkWell(
+                                              splashColor: Colors.transparent,
+                                              focusColor: Colors.transparent,
+                                              hoverColor: Colors.transparent,
+                                              highlightColor: Colors.transparent,
+                                              onTap: () {
+                                                context.pushNamed(
+                                                  CampaignCompletedWidget.routeName,
+                                                  queryParameters: {
+                                                    'campaignId': serializeParam(
+                                                      widget.campaignId,
+                                                      ParamType.String,
+                                                    ),
+                                                  }.withoutNulls,
+                                                );
+                                              },
+                                              child: wrapWithModel(
+                                                model: _model.buttonModel1,
+                                                updateCallback: () =>
+                                                    safeSetState(() {}),
+                                                child: ButtonWidget(
+                                                  icon: Icon(
+                                                    Icons.assessment_rounded,
+                                                    color: FlutterFlowTheme.of(context)
+                                                        .primaryText,
+                                                    size: 20.0,
+                                                  ),
+                                                  iconPresent: true,
+                                                  iconEndPresent: false,
+                                                  content: 'View Report',
+                                                  variant: 'outline',
+                                                  size: 'large',
+                                                  fullWidth: false,
+                                                  loading: false,
+                                                  disabled: false,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            flex: 1,
+                                            child: InkWell(
+                                              splashColor: Colors.transparent,
+                                              focusColor: Colors.transparent,
+                                              hoverColor: Colors.transparent,
+                                              highlightColor: Colors.transparent,
+                                              onTap: () {
+                                                showCreateCampaignFromHistorySheet(
+                                                  context,
+                                                  sourceCampaignId: widget.campaignId!,
+                                                  sourceCampaignName:
+                                                      broadcastDetailsCampaignsRecord.name,
+                                                );
+                                              },
+                                              child: wrapWithModel(
+                                                model: _model.buttonModel2,
+                                                updateCallback: () =>
+                                                    safeSetState(() {}),
+                                                child: ButtonWidget(
+                                                  icon: const Icon(
+                                                    Icons.person_add_alt_1_rounded,
+                                                    color: Colors.white,
+                                                    size: 20.0,
+                                                  ),
+                                                  iconPresent: true,
+                                                  iconEndPresent: false,
+                                                  content: 'Reuse Contacts',
+                                                  variant: 'primary',
+                                                  size: 'large',
+                                                  fullWidth: false,
+                                                  loading: false,
+                                                  disabled: false,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ] else ...[
                                         Expanded(
                                           flex: 1,
                                           child: InkWell(
@@ -1785,6 +2038,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                             ),
                                           ),
                                         ),
+                                        ],
                                       ].divide(SizedBox(width: 16.0)),
                                     ),
                                   ),

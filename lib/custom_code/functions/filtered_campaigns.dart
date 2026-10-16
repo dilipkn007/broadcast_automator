@@ -16,7 +16,20 @@ List<CampaignsRecord> filteredCampaigns(
   String searchQuery,
 ) {
   final all = campaigns;
-  final q = searchQuery.toLowerCase();
+  final q = searchQuery.trim().toLowerCase();
   if (q.isEmpty) return all;
-  return all.where((c) => c.name.toLowerCase().contains(q)).toList();
+  return all.where((c) {
+    final name = c.name.toLowerCase();
+    final status = c.status.toLowerCase();
+    final rawDate = c.createdAt.toLowerCase();
+    String formattedDate = '';
+    final parsedDate = DateTime.tryParse(c.createdAt);
+    if (parsedDate != null) {
+      formattedDate = DateFormat('MMM d, yyyy').format(parsedDate).toLowerCase();
+    }
+    return name.contains(q) ||
+        status.contains(q) ||
+        rawDate.contains(q) ||
+        (formattedDate.isNotEmpty && formattedDate.contains(q));
+  }).toList();
 }

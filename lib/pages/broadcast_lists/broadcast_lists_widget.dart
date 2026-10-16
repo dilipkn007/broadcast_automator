@@ -31,6 +31,12 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
 
   final scaffoldKey = GlobalKey<ScaffoldState>();
 
+  bool _isSearching = false;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  bool _showCsvRequirements = false;
+  Key _streamKey = UniqueKey();
+
   @override
   void initState() {
     super.initState();
@@ -40,8 +46,44 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
   @override
   void dispose() {
     _model.dispose();
-
+    _searchController.dispose();
     super.dispose();
+  }
+
+  DateTime? _parseCampaignDate(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final iso = DateTime.tryParse(trimmed);
+    if (iso != null) return iso;
+    try {
+      return DateFormat('MMM d, yyyy').parse(trimmed);
+    } catch (_) {}
+    try {
+      return DateFormat('MMM dd, yyyy').parse(trimmed);
+    } catch (_) {}
+    try {
+      return DateFormat.yMMMd().parse(trimmed);
+    } catch (_) {}
+    return null;
+  }
+
+  String _formatCampaignDate(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final dt = DateTime.tryParse(trimmed);
+    if (dt != null) {
+      return DateFormat('MMM d, yyyy').format(dt.toLocal());
+    }
+    return raw;
+  }
+
+  Future<void> _handleRefresh() async {
+    setState(() {
+      _streamKey = UniqueKey();
+    });
+    try {
+      await queryCampaignsRecordOnce();
+    } catch (_) {}
   }
 
   @override
@@ -82,81 +124,155 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                           Padding(
                             padding: EdgeInsetsDirectional.fromSTEB(
                                 24.0, 32.0, 24.0, 16.0),
-                            child: Container(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.max,
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    mainAxisAlignment: MainAxisAlignment.start,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        'Broadcast Lists',
-                                        style: FlutterFlowTheme.of(context)
-                                            .headlineSmall
-                                            .override(
-                                              font: GoogleFonts.plusJakartaSans(
-                                                fontWeight: FontWeight.w800,
-                                                fontStyle:
-                                                    FlutterFlowTheme.of(context)
-                                                        .headlineSmall
-                                                        .fontStyle,
-                                              ),
-                                              color:
-                                                  FlutterFlowTheme.of(context)
-                                                      .primaryText,
-                                              letterSpacing: 0.0,
-                                              fontWeight: FontWeight.w800,
-                                              fontStyle:
-                                                  FlutterFlowTheme.of(context)
-                                                      .headlineSmall
-                                                      .fontStyle,
-                                              lineHeight: 1.3,
-                                            ),
+                            child: _isSearching
+                                ? Container(
+                                    height: 48.0,
+                                    decoration: BoxDecoration(
+                                      color: FlutterFlowTheme.of(context)
+                                          .primaryBackground,
+                                      borderRadius: BorderRadius.circular(12.0),
+                                      border: Border.all(
+                                        color: FlutterFlowTheme.of(context)
+                                            .alternate,
+                                        width: 1.0,
                                       ),
-                                      Text(
-                                        'Import and manage your broadcast campaigns.',
-                                        style: FlutterFlowTheme.of(context)
-                                            .bodySmall
-                                            .override(
-                                              font: GoogleFonts.inter(
-                                                fontWeight:
-                                                    FlutterFlowTheme.of(context)
-                                                        .bodySmall
-                                                        .fontWeight,
-                                                fontStyle:
-                                                    FlutterFlowTheme.of(context)
-                                                        .bodySmall
-                                                        .fontStyle,
-                                              ),
-                                              color:
-                                                  FlutterFlowTheme.of(context)
-                                                      .secondaryText,
-                                              letterSpacing: 0.0,
-                                              fontWeight:
-                                                  FlutterFlowTheme.of(context)
-                                                      .bodySmall
-                                                      .fontWeight,
-                                              fontStyle:
-                                                  FlutterFlowTheme.of(context)
-                                                      .bodySmall
-                                                      .fontStyle,
-                                              lineHeight: 1.4,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8.0),
+                                    child: Row(
+                                      children: [
+                                        FlutterFlowIconButton(
+                                          borderRadius: 8.0,
+                                          buttonSize: 36.0,
+                                          fillColor: Colors.transparent,
+                                          icon: Icon(
+                                            Icons.arrow_back_rounded,
+                                            color: FlutterFlowTheme.of(context)
+                                                .primaryText,
+                                            size: 22.0,
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _isSearching = false;
+                                              _searchController.clear();
+                                              _searchQuery = '';
+                                            });
+                                          },
+                                        ),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _searchController,
+                                            autofocus: true,
+                                            style: GoogleFonts.inter(
+                                              color: FlutterFlowTheme.of(context)
+                                                  .primaryText,
+                                              fontSize: 14.5,
                                             ),
-                                      ),
-                                    ].divide(SizedBox(height: 4.0)),
-                                  ),
-                                  Row(
+                                            decoration: InputDecoration(
+                                              hintText: 'Search campaigns...',
+                                              hintStyle: GoogleFonts.inter(
+                                                color: FlutterFlowTheme.of(
+                                                        context)
+                                                    .secondaryText,
+                                                fontSize: 14.0,
+                                              ),
+                                              border: InputBorder.none,
+                                              isDense: true,
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8.0),
+                                            ),
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _searchQuery = val.trim();
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                        if (_searchQuery.isNotEmpty)
+                                          FlutterFlowIconButton(
+                                            borderRadius: 8.0,
+                                            buttonSize: 36.0,
+                                            fillColor: Colors.transparent,
+                                            icon: Icon(
+                                              Icons.clear_rounded,
+                                              color: FlutterFlowTheme.of(
+                                                      context)
+                                                  .secondaryText,
+                                              size: 20.0,
+                                            ),
+                                            onPressed: () {
+                                              _searchController.clear();
+                                              setState(() {
+                                                _searchQuery = '';
+                                              });
+                                            },
+                                          ),
+                                      ],
+                                    ),
+                                  )
+                                : Row(
                                     mainAxisSize: MainAxisSize.max,
-                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
                                     crossAxisAlignment:
                                         CrossAxisAlignment.center,
                                     children: [
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Broadcast Lists',
+                                            style: FlutterFlowTheme.of(context)
+                                                .headlineSmall
+                                                .override(
+                                                  font: GoogleFonts
+                                                      .plusJakartaSans(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontStyle:
+                                                        FlutterFlowTheme.of(
+                                                                context)
+                                                            .headlineSmall
+                                                            .fontStyle,
+                                                  ),
+                                                  color: FlutterFlowTheme.of(
+                                                          context)
+                                                      .primaryText,
+                                                  letterSpacing: 0.0,
+                                                  fontWeight: FontWeight.w800,
+                                                  lineHeight: 1.3,
+                                                ),
+                                          ),
+                                          Text(
+                                            'Import and manage your broadcast campaigns.',
+                                            style: FlutterFlowTheme.of(context)
+                                                .bodySmall
+                                                .override(
+                                                  font: GoogleFonts.inter(
+                                                    fontWeight:
+                                                        FlutterFlowTheme.of(
+                                                                context)
+                                                            .bodySmall
+                                                            .fontWeight,
+                                                    fontStyle:
+                                                        FlutterFlowTheme.of(
+                                                                context)
+                                                            .bodySmall
+                                                            .fontStyle,
+                                                  ),
+                                                  color: FlutterFlowTheme.of(
+                                                          context)
+                                                      .secondaryText,
+                                                  letterSpacing: 0.0,
+                                                  lineHeight: 1.4,
+                                                ),
+                                          ),
+                                        ].divide(SizedBox(height: 4.0)),
+                                      ),
                                       FlutterFlowIconButton(
                                         borderRadius: 8.0,
                                         buttonSize: 40.0,
@@ -168,28 +284,13 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                           size: 24.0,
                                         ),
                                         onPressed: () {
-                                          print('IconButton pressed ...');
+                                          setState(() {
+                                            _isSearching = true;
+                                          });
                                         },
                                       ),
-                                      FlutterFlowIconButton(
-                                        borderRadius: 8.0,
-                                        buttonSize: 40.0,
-                                        fillColor: Colors.transparent,
-                                        icon: Icon(
-                                          Icons.more_vert_rounded,
-                                          color: FlutterFlowTheme.of(context)
-                                              .primaryText,
-                                          size: 24.0,
-                                        ),
-                                        onPressed: () {
-                                          print('IconButton pressed ...');
-                                        },
-                                      ),
-                                    ].divide(SizedBox(width: 4.0)),
+                                    ],
                                   ),
-                                ],
-                              ),
-                            ),
                           ),
                           Container(
                             height: 1.0,
@@ -204,18 +305,26 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                     Expanded(
                       flex: 1,
                       child: Container(
-                        child: SingleChildScrollView(
-                          primary: false,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            mainAxisAlignment: MainAxisAlignment.start,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Padding(
-                                padding: EdgeInsets.all(24.0),
-                                child: StreamBuilder<List<CampaignsRecord>>(
-                                  stream: queryCampaignsRecord(),
-                                  builder: (context, snapshot) {
+                        child: RefreshIndicator(
+                          color: FlutterFlowTheme.of(context).primary,
+                          backgroundColor:
+                              FlutterFlowTheme.of(context).secondaryBackground,
+                          strokeWidth: 2.5,
+                          onRefresh: _handleRefresh,
+                          child: SingleChildScrollView(
+                            primary: false,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.all(24.0),
+                                  child: StreamBuilder<List<CampaignsRecord>>(
+                                    key: _streamKey,
+                                    stream: queryCampaignsRecord(),
+                                    builder: (context, snapshot) {
                                     // Customize what your widget looks like when it's loading.
                                     if (snapshot.connectionState ==
                                             ConnectionState.waiting &&
@@ -246,7 +355,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                   FlutterFlowTheme.of(context)
                                                       .info10,
                                               borderRadius:
-                                                  BorderRadius.circular(20.0),
+                                                  BorderRadius.circular(16.0),
                                               shape: BoxShape.rectangle,
                                               border: Border.all(
                                                 color:
@@ -256,235 +365,190 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                               ),
                                             ),
                                             child: Padding(
-                                              padding: EdgeInsets.all(24.0),
-                                              child: Container(
-                                                child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.start,
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.center,
-                                                  children: [
-                                                    Row(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 16.0, vertical: 12.0),
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.stretch,
+                                                children: [
+                                                  InkWell(
+                                                    borderRadius:
+                                                        BorderRadius.circular(8.0),
+                                                    onTap: () {
+                                                      setState(() {
+                                                        _showCsvRequirements =
+                                                            !_showCsvRequirements;
+                                                      });
+                                                    },
+                                                    child: Row(
                                                       mainAxisSize:
                                                           MainAxisSize.max,
                                                       mainAxisAlignment:
                                                           MainAxisAlignment
-                                                              .start,
+                                                              .spaceBetween,
                                                       crossAxisAlignment:
                                                           CrossAxisAlignment
                                                               .center,
                                                       children: [
+                                                        Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .center,
+                                                          children: [
+                                                            Icon(
+                                                              Icons
+                                                                  .info_outline_rounded,
+                                                              color:
+                                                                  FlutterFlowTheme
+                                                                          .of(context)
+                                                                      .onInfo,
+                                                              size: 20.0,
+                                                            ),
+                                                            const SizedBox(
+                                                                width: 8.0),
+                                                            Text(
+                                                              'CSV Requirements',
+                                                              style: FlutterFlowTheme
+                                                                      .of(context)
+                                                                  .titleSmall
+                                                                  .override(
+                                                                    font: GoogleFonts
+                                                                        .plusJakartaSans(
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .bold,
+                                                                    ),
+                                                                    color: FlutterFlowTheme
+                                                                            .of(context)
+                                                                        .onPrimaryContainer,
+                                                                    lineHeight:
+                                                                        1.4,
+                                                                  ),
+                                                            ),
+                                                          ],
+                                                        ),
                                                         Icon(
-                                                          Icons
-                                                              .info_outline_rounded,
-                                                          color: FlutterFlowTheme
-                                                                  .of(context)
-                                                              .onInfo,
-                                                          size: 20.0,
+                                                          _showCsvRequirements
+                                                              ? Icons
+                                                                  .keyboard_arrow_up_rounded
+                                                              : Icons
+                                                                  .keyboard_arrow_down_rounded,
+                                                          color:
+                                                              FlutterFlowTheme
+                                                                      .of(context)
+                                                                  .onInfo,
+                                                          size: 22.0,
                                                         ),
-                                                        Text(
-                                                          'CSV Requirements',
-                                                          style: FlutterFlowTheme
-                                                                  .of(context)
-                                                              .titleSmall
-                                                              .override(
-                                                                font: GoogleFonts
-                                                                    .plusJakartaSans(
-                                                                  fontWeight: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .titleSmall
-                                                                      .fontWeight,
-                                                                  fontStyle: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .titleSmall
-                                                                      .fontStyle,
-                                                                ),
-                                                                color: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .onPrimaryContainer,
-                                                                letterSpacing:
-                                                                    0.0,
-                                                                fontWeight: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .titleSmall
-                                                                    .fontWeight,
-                                                                fontStyle: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .titleSmall
-                                                                    .fontStyle,
-                                                                lineHeight: 1.4,
-                                                              ),
-                                                        ),
-                                                      ].divide(
-                                                          SizedBox(width: 8.0)),
+                                                      ],
                                                     ),
+                                                  ),
+                                                  if (_showCsvRequirements) ...[
+                                                    const SizedBox(height: 12.0),
                                                     Text(
                                                       'Ensure your CSV includes \'Name\' and \'Phone\' columns for successful import.',
-                                                      style:
-                                                          FlutterFlowTheme.of(
-                                                                  context)
-                                                              .bodySmall
-                                                              .override(
-                                                                font:
-                                                                    GoogleFonts
-                                                                        .inter(
-                                                                  fontWeight: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .bodySmall
-                                                                      .fontWeight,
-                                                                  fontStyle: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .bodySmall
-                                                                      .fontStyle,
-                                                                ),
-                                                                color: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .onPrimaryContainer,
-                                                                letterSpacing:
-                                                                    0.0,
-                                                                fontWeight: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .bodySmall
-                                                                    .fontWeight,
-                                                                fontStyle: FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .bodySmall
-                                                                    .fontStyle,
-                                                                lineHeight: 1.4,
-                                                              ),
-                                                    ),
-                                                    Padding(
-                                                      padding:
-                                                          EdgeInsetsDirectional
-                                                              .fromSTEB(
-                                                                  4.0,
-                                                                  0.0,
-                                                                  4.0,
-                                                                  0.0),
-                                                      child: Container(
-                                                        child: Container(
-                                                          decoration:
-                                                              BoxDecoration(
+                                                      style: FlutterFlowTheme
+                                                              .of(context)
+                                                          .bodySmall
+                                                          .override(
+                                                            font: GoogleFonts
+                                                                .inter(),
                                                             color: FlutterFlowTheme
                                                                     .of(context)
-                                                                .surface50,
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                        12.0),
-                                                            shape: BoxShape
-                                                                .rectangle,
+                                                                .onPrimaryContainer,
+                                                            lineHeight: 1.4,
                                                           ),
-                                                          child: Padding(
-                                                            padding:
-                                                                EdgeInsets.all(
-                                                                    16.0),
-                                                            child: Container(
-                                                              child: Column(
-                                                                mainAxisSize:
-                                                                    MainAxisSize
-                                                                        .min,
-                                                                mainAxisAlignment:
-                                                                    MainAxisAlignment
-                                                                        .start,
-                                                                crossAxisAlignment:
-                                                                    CrossAxisAlignment
-                                                                        .center,
-                                                                children: [
-                                                                  Text(
-                                                                    'Name | Phone',
-                                                                    style: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .labelSmall
-                                                                        .override(
-                                                                          font:
-                                                                              GoogleFonts.inter(
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            fontStyle:
-                                                                                FlutterFlowTheme.of(context).labelSmall.fontStyle,
-                                                                          ),
-                                                                          color:
-                                                                              FlutterFlowTheme.of(context).primaryText,
-                                                                          letterSpacing:
-                                                                              0.0,
-                                                                          fontWeight:
-                                                                              FontWeight.bold,
-                                                                          fontStyle: FlutterFlowTheme.of(context)
-                                                                              .labelSmall
-                                                                              .fontStyle,
-                                                                          lineHeight:
-                                                                              1.2,
-                                                                        ),
-                                                                  ),
-                                                                  Text(
-                                                                    'John Doe | 919876543210',
-                                                                    style: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .labelSmall
-                                                                        .override(
-                                                                          font:
-                                                                              GoogleFonts.inter(
-                                                                            fontWeight:
-                                                                                FlutterFlowTheme.of(context).labelSmall.fontWeight,
-                                                                            fontStyle:
-                                                                                FlutterFlowTheme.of(context).labelSmall.fontStyle,
-                                                                          ),
-                                                                          color:
-                                                                              FlutterFlowTheme.of(context).secondaryText,
-                                                                          letterSpacing:
-                                                                              0.0,
-                                                                          fontWeight: FlutterFlowTheme.of(context)
-                                                                              .labelSmall
-                                                                              .fontWeight,
-                                                                          fontStyle: FlutterFlowTheme.of(context)
-                                                                              .labelSmall
-                                                                              .fontStyle,
-                                                                          lineHeight:
-                                                                              1.2,
-                                                                        ),
-                                                                  ),
-                                                                  Text(
-                                                                    'Rahul | 919812345678',
-                                                                    style: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .labelSmall
-                                                                        .override(
-                                                                          font:
-                                                                              GoogleFonts.inter(
-                                                                            fontWeight:
-                                                                                FlutterFlowTheme.of(context).labelSmall.fontWeight,
-                                                                            fontStyle:
-                                                                                FlutterFlowTheme.of(context).labelSmall.fontStyle,
-                                                                          ),
-                                                                          color:
-                                                                              FlutterFlowTheme.of(context).secondaryText,
-                                                                          letterSpacing:
-                                                                              0.0,
-                                                                          fontWeight: FlutterFlowTheme.of(context)
-                                                                              .labelSmall
-                                                                              .fontWeight,
-                                                                          fontStyle: FlutterFlowTheme.of(context)
-                                                                              .labelSmall
-                                                                              .fontStyle,
-                                                                          lineHeight:
-                                                                              1.2,
-                                                                        ),
-                                                                  ),
-                                                                ].divide(SizedBox(
-                                                                    height:
-                                                                        4.0)),
+                                                    ),
+                                                    const SizedBox(height: 8.0),
+                                                    Padding(
+                                                      padding:
+                                                          const EdgeInsetsDirectional
+                                                              .fromSTEB(
+                                                              4.0, 0.0, 4.0, 0.0),
+                                                      child: Container(
+                                                        decoration: BoxDecoration(
+                                                          color:
+                                                              FlutterFlowTheme
+                                                                      .of(context)
+                                                                  .surface50,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(12.0),
+                                                          shape:
+                                                              BoxShape.rectangle,
+                                                        ),
+                                                        child: Padding(
+                                                          padding:
+                                                              const EdgeInsets
+                                                                  .all(16.0),
+                                                          child: Column(
+                                                            mainAxisSize:
+                                                                MainAxisSize.min,
+                                                            crossAxisAlignment:
+                                                                CrossAxisAlignment
+                                                                    .center,
+                                                            children: [
+                                                              Text(
+                                                                'Name | Phone',
+                                                                style: FlutterFlowTheme
+                                                                        .of(context)
+                                                                    .labelSmall
+                                                                    .override(
+                                                                      font: GoogleFonts
+                                                                          .inter(
+                                                                        fontWeight:
+                                                                            FontWeight.bold,
+                                                                      ),
+                                                                      color: FlutterFlowTheme
+                                                                              .of(context)
+                                                                          .primaryText,
+                                                                      lineHeight:
+                                                                          1.2,
+                                                                    ),
                                                               ),
-                                                            ),
+                                                              const SizedBox(
+                                                                  height: 4.0),
+                                                              Text(
+                                                                'John Doe | 919876543210',
+                                                                style: FlutterFlowTheme
+                                                                        .of(context)
+                                                                    .labelSmall
+                                                                    .override(
+                                                                      font: GoogleFonts
+                                                                          .inter(),
+                                                                      color: FlutterFlowTheme
+                                                                              .of(context)
+                                                                          .secondaryText,
+                                                                      lineHeight:
+                                                                          1.2,
+                                                                    ),
+                                                              ),
+                                                              const SizedBox(
+                                                                  height: 4.0),
+                                                              Text(
+                                                                'Rahul | 919812345678',
+                                                                style: FlutterFlowTheme
+                                                                        .of(context)
+                                                                    .labelSmall
+                                                                    .override(
+                                                                      font: GoogleFonts
+                                                                          .inter(),
+                                                                      color: FlutterFlowTheme
+                                                                              .of(context)
+                                                                          .secondaryText,
+                                                                      lineHeight:
+                                                                          1.2,
+                                                                    ),
+                                                              ),
+                                                            ],
                                                           ),
                                                         ),
                                                       ),
                                                     ),
-                                                  ].divide(
-                                                      SizedBox(height: 8.0)),
-                                                ),
+                                                  ],
+                                                ],
                                               ),
                                             ),
                                           ),
@@ -572,10 +636,8 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                                   contacts
                                                                       .length,
                                                               createdAt:
-                                                                  dateTimeFormat(
-                                                                      'MMM d, yyyy',
-                                                                      DateTime
-                                                                          .now()),
+                                                                  DateTime.now()
+                                                                      .toIso8601String(),
                                                               status: 'Ready',
                                                               messageBody: '',
                                                               delaySeconds: 6,
@@ -650,7 +712,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                   highlightColor:
                                                       Colors.transparent,
                                                   onTap: () async {
-                                                    context.goNamed(
+                                                    context.pushNamed(
                                                         CreateBroadcastWidget
                                                             .routeName);
                                                   },
@@ -741,222 +803,109 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                   ),
                                                 ],
                                               ),
-                                              if (functions
-                                                      .filteredCampaigns(
-                                                          columnPaddingCampaignsRecordList
-                                                              .toList(),
-                                                          FFAppState()
-                                                              .searchQuery)
-                                                      .length ==
-                                                  0)
-                                                Padding(
-                                                  padding: EdgeInsets.all(32.0),
-                                                  child: Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Icon(
-                                                        Icons
-                                                            .inventory_2_rounded,
-                                                        color:
-                                                            FlutterFlowTheme.of(
-                                                                    context)
-                                                                .secondaryText,
-                                                        size: 48.0,
-                                                      ),
-                                                      Text(
-                                                        'No broadcast lists yet',
-                                                        style:
-                                                            FlutterFlowTheme.of(
-                                                                    context)
-                                                                .titleMedium
-                                                                .override(
-                                                                  font: GoogleFonts
-                                                                      .plusJakartaSans(
-                                                                    fontWeight: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .titleMedium
-                                                                        .fontWeight,
-                                                                    fontStyle: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .titleMedium
-                                                                        .fontStyle,
-                                                                  ),
-                                                                  color: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .primaryText,
-                                                                  letterSpacing:
-                                                                      0.0,
-                                                                  fontWeight: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .titleMedium
-                                                                      .fontWeight,
-                                                                  fontStyle: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .titleMedium
-                                                                      .fontStyle,
-                                                                  lineHeight:
-                                                                      1.4,
-                                                                ),
-                                                      ),
-                                                      Text(
-                                                        'Import a CSV to start your first campaign',
-                                                        style:
-                                                            FlutterFlowTheme.of(
-                                                                    context)
-                                                                .bodySmall
-                                                                .override(
-                                                                  font:
-                                                                      GoogleFonts
-                                                                          .inter(
-                                                                    fontWeight: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .bodySmall
-                                                                        .fontWeight,
-                                                                    fontStyle: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .bodySmall
-                                                                        .fontStyle,
-                                                                  ),
-                                                                  color: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .secondaryText,
-                                                                  letterSpacing:
-                                                                      0.0,
-                                                                  fontWeight: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .bodySmall
-                                                                      .fontWeight,
-                                                                  fontStyle: FlutterFlowTheme.of(
-                                                                          context)
-                                                                      .bodySmall
-                                                                      .fontStyle,
-                                                                  lineHeight:
-                                                                      1.4,
-                                                                ),
-                                                      ),
-                                                    ].divide(
-                                                        SizedBox(height: 16.0)),
-                                                  ),
-                                                ),
+                                              Builder(
+                                                  builder: (context) {
+                                                    final listWithIndex = columnPaddingCampaignsRecordList.asMap().entries.toList();
+                                                    listWithIndex.sort((entryA, entryB) {
+                                                      final a = entryA.value;
+                                                      final b = entryB.value;
+                                                      final dateA = _parseCampaignDate(a.createdAt);
+                                                      final dateB = _parseCampaignDate(b.createdAt);
+                                                      if (dateA != null && dateB != null) {
+                                                        final cmp = dateB.compareTo(dateA);
+                                                        if (cmp != 0) return cmp;
+                                                      } else if (dateA != null) {
+                                                        return -1;
+                                                      } else if (dateB != null) {
+                                                        return 1;
+                                                      }
+                                                      return entryB.key.compareTo(entryA.key);
+                                                    });
+                                                    final sortedCampaigns = listWithIndex.map((e) => e.value).toList();
+                                                    final displayCampaigns = functions.filteredCampaigns(sortedCampaigns, _searchQuery);
 
-                                              // ff_lite_listview_data:${filtered_campaigns}
-                                              if ((functions
-                                                          .filteredCampaigns(
-                                                              columnPaddingCampaignsRecordList
-                                                                  .toList(),
-                                                              FFAppState()
-                                                                  .searchQuery)
-                                                          .length ==
-                                                      0) ==
-                                                  false)
-                                                StreamBuilder<
-                                                    List<CampaignsRecord>>(
-                                                  stream:
-                                                      queryCampaignsRecord(),
-                                                   builder: (context, snapshot) {
-                                                    // Customize what your widget looks like when it's loading.
-                                                    if (snapshot.connectionState ==
-                                                            ConnectionState.waiting &&
-                                                        !snapshot.hasData) {
-                                                      return Center(
-                                                        child: SizedBox(
-                                                          width: 50,
-                                                          height: 50,
-                                                          child:
-                                                              CircularProgressIndicator(),
+                                                    if (displayCampaigns.isEmpty) {
+                                                      return Padding(
+                                                        padding: const EdgeInsets.all(32.0),
+                                                        child: Column(
+                                                          mainAxisSize: MainAxisSize.min,
+                                                          mainAxisAlignment: MainAxisAlignment.center,
+                                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                                          children: [
+                                                            Icon(
+                                                              _searchQuery.isNotEmpty
+                                                                  ? Icons.search_off_rounded
+                                                                  : Icons.inventory_2_rounded,
+                                                              color: FlutterFlowTheme.of(context).secondaryText,
+                                                              size: 48.0,
+                                                            ),
+                                                            const SizedBox(height: 12.0),
+                                                            Text(
+                                                              _searchQuery.isNotEmpty
+                                                                  ? 'No campaigns found'
+                                                                  : 'No broadcast lists yet',
+                                                              style: FlutterFlowTheme.of(context).titleMedium.override(
+                                                                font: GoogleFonts.plusJakartaSans(
+                                                                  fontWeight: FontWeight.bold,
+                                                                ),
+                                                                color: FlutterFlowTheme.of(context).primaryText,
+                                                              ),
+                                                            ),
+                                                            const SizedBox(height: 4.0),
+                                                            Text(
+                                                              _searchQuery.isNotEmpty
+                                                                  ? 'Try searching with a different keyword'
+                                                                  : 'Import a CSV to start your first campaign',
+                                                              style: FlutterFlowTheme.of(context).bodySmall.override(
+                                                                font: GoogleFonts.inter(),
+                                                                color: FlutterFlowTheme.of(context).secondaryText,
+                                                              ),
+                                                            ),
+                                                          ],
                                                         ),
                                                       );
                                                     }
-                                                    List<CampaignsRecord>
-                                                        listViewCampaignsRecordList =
-                                                        snapshot.data ?? [];
 
-                                                    return Builder(
-                                                      builder: (context) {
-                                                        final item =
-                                                            listViewCampaignsRecordList
-                                                                .toList();
-
-                                                        return ListView.builder(
-                                                          padding:
-                                                              EdgeInsets.zero,
-                                                          primary: false,
-                                                          shrinkWrap: true,
-                                                          scrollDirection:
-                                                              Axis.vertical,
-                                                          itemCount:
-                                                              item.length,
-                                                          itemBuilder: (context,
-                                                              itemIndex) {
-                                                            final itemItem =
-                                                                item[itemIndex];
-                                                            return InkWell(
-                                                              splashColor: Colors
-                                                                  .transparent,
-                                                              focusColor: Colors
-                                                                  .transparent,
-                                                              hoverColor: Colors
-                                                                  .transparent,
-                                                              highlightColor:
-                                                                  Colors
-                                                                      .transparent,
-                                                              onTap: () async {
-                                                                context
-                                                                    .pushNamed(
-                                                                  BroadcastDetailsWidget
-                                                                      .routeName,
-                                                                  queryParameters:
-                                                                      {
-                                                                    'campaignId':
-                                                                        serializeParam(
-                                                                      itemItem
-                                                                          .id,
-                                                                      ParamType
-                                                                          .String,
-                                                                    ),
-                                                                  }
-                                                                      .withoutNulls,
-                                                                );
-                                                              },
-                                                              child:
-                                                                  BroadcastCardWidget(
-                                                                key: Key(
-                                                                    'Key189_${itemIndex}_of_${item.length}'),
-                                                                tapAction:
-                                                                    'navigate(\"broadcast_details\", {campaign_id: \"${itemItem.id}\"})',
-                                                                name: itemItem
-                                                                    .name,
-                                                                count: itemItem
-                                                                    .contactCount
-                                                                    .toString(),
-                                                                date: itemItem
-                                                                    .createdAt,
-                                                                status: itemItem
-                                                                    .status,
-                                                                statusColor: itemItem
-                                                                            .status ==
-                                                                        'Ready'
-                                                                    ? FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .success
-                                                                    : (itemItem.status ==
-                                                                            'Sending'
-                                                                        ? FlutterFlowTheme.of(context)
-                                                                            .warning
-                                                                        : (itemItem.status ==
-                                                                                'Completed'
-                                                                            ? FlutterFlowTheme.of(context).info
-                                                                            : FlutterFlowTheme.of(context).error)),
-                                                              ),
+                                                    return ListView.builder(
+                                                      padding: EdgeInsets.zero,
+                                                      primary: false,
+                                                      shrinkWrap: true,
+                                                      physics: const NeverScrollableScrollPhysics(),
+                                                      scrollDirection: Axis.vertical,
+                                                      itemCount: displayCampaigns.length,
+                                                      itemBuilder: (context, itemIndex) {
+                                                        final itemItem = displayCampaigns[itemIndex];
+                                                        return InkWell(
+                                                          splashColor: Colors.transparent,
+                                                          focusColor: Colors.transparent,
+                                                          hoverColor: Colors.transparent,
+                                                          highlightColor: Colors.transparent,
+                                                          onTap: () async {
+                                                            context.pushNamed(
+                                                              BroadcastDetailsWidget.routeName,
+                                                              queryParameters: {
+                                                                'campaignId': serializeParam(
+                                                                  itemItem.id,
+                                                                  ParamType.String,
+                                                                ),
+                                                              }.withoutNulls,
                                                             );
                                                           },
+                                                          child: BroadcastCardWidget(
+                                                            key: Key('Key189_${itemIndex}_of_${displayCampaigns.length}'),
+                                                            tapAction: 'navigate("broadcast_details", {campaign_id: "${itemItem.id}"})',
+                                                            name: itemItem.name,
+                                                            count: itemItem.contactCount.toString(),
+                                                            date: _formatCampaignDate(itemItem.createdAt),
+                                                            status: itemItem.status,
+                                                            statusColor: itemItem.status == 'Ready'
+                                                                ? FlutterFlowTheme.of(context).success
+                                                                : (itemItem.status == 'Sending'
+                                                                    ? FlutterFlowTheme.of(context).warning
+                                                                    : (itemItem.status == 'Completed'
+                                                                        ? FlutterFlowTheme.of(context).info
+                                                                        : FlutterFlowTheme.of(context).error)),
+                                                          ),
                                                         );
                                                       },
                                                     );
@@ -970,18 +919,19 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                   },
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+                             ],
+                           ),
+                         ),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+             ),
+           ],
+         ),
+       ),
+     ),
+   );
+ }
 }
