@@ -12,6 +12,8 @@ abstract class SupabaseRecord {
   String id;
 }
 
+typedef DatabaseRecord = SupabaseRecord;
+
 Map<String, dynamic> mapFromSupabase(Map<String, dynamic> data) =>
     mergeNestedFields(data).map((key, value) {
       // Handle nested data.

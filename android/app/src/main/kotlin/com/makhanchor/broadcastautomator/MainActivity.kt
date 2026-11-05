@@ -177,6 +177,7 @@ class MainActivity : FlutterActivity() {
             campaignName = args["campaignName"]?.toString() ?: "",
             message = args["message"]?.toString() ?: "",
             delaySeconds = (args["delaySeconds"] as? Number)?.toInt() ?: 6,
+            preSendDelaySeconds = (args["preSendDelaySeconds"] as? Number)?.toInt() ?: 2,
             randomizeDelay = args["randomizeDelay"] == true,
             autoRetry = args["autoRetry"] == true,
             skipInvalid = args["skipInvalid"] == true,

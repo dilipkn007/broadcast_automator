@@ -23,6 +23,7 @@ data class WaJob(
     val campaignName: String,
     val message: String,
     val delaySeconds: Int,
+    val preSendDelaySeconds: Int = 2,
     val randomizeDelay: Boolean,
     val autoRetry: Boolean,
     val skipInvalid: Boolean,
@@ -45,6 +46,7 @@ object BroadcastStore {
     private const val KEY_CAMPAIGN_NAME = "job_campaign_name"
     private const val KEY_MESSAGE = "job_message"
     private const val KEY_DELAY = "job_delay_seconds"
+    private const val KEY_PRE_SEND_DELAY = "job_pre_send_delay_seconds"
     private const val KEY_RANDOMIZE = "job_randomize_delay"
     private const val KEY_RETRY = "job_auto_retry"
     private const val KEY_SKIP_INVALID = "job_skip_invalid"
@@ -60,6 +62,7 @@ object BroadcastStore {
         campaignName: String,
         message: String,
         delaySeconds: Int,
+        preSendDelaySeconds: Int = 2,
         randomizeDelay: Boolean,
         autoRetry: Boolean,
         skipInvalid: Boolean,
@@ -91,6 +94,7 @@ object BroadcastStore {
             .putString(KEY_CAMPAIGN_NAME, campaignName)
             .putString(KEY_MESSAGE, message)
             .putInt(KEY_DELAY, delaySeconds)
+            .putInt(KEY_PRE_SEND_DELAY, preSendDelaySeconds)
             .putBoolean(KEY_RANDOMIZE, randomizeDelay)
             .putBoolean(KEY_RETRY, autoRetry)
             .putBoolean(KEY_SKIP_INVALID, skipInvalid)
@@ -141,6 +145,7 @@ object BroadcastStore {
             campaignName = p.getString(KEY_CAMPAIGN_NAME, "") ?: "",
             message = p.getString(KEY_MESSAGE, "") ?: "",
             delaySeconds = p.getInt(KEY_DELAY, 0),
+            preSendDelaySeconds = p.getInt(KEY_PRE_SEND_DELAY, 2),
             randomizeDelay = p.getBoolean(KEY_RANDOMIZE, false),
             autoRetry = p.getBoolean(KEY_RETRY, false),
             skipInvalid = p.getBoolean(KEY_SKIP_INVALID, false),

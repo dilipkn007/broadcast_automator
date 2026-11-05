@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -6,78 +5,35 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 
-import 'backend/supabase/supabase_config.dart';
+import 'backend/sqlite/local_database.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import 'flutter_flow/flutter_flow_util.dart';
 import 'flutter_flow/nav/nav.dart';
 import 'index.dart';
 
-class AppHttpOverrides extends HttpOverrides {
-  static const Map<String, String> _staticHostMap = {
-    'irisxsklwelqakeloerg.supabase.co': '104.18.38.10',
-  };
-
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    final client = super.createHttpClient(context);
-    client.connectionFactory = (Uri uri, String? proxyHost, int? proxyPort) async {
-      final isSecure = uri.scheme == 'https' || uri.scheme == 'wss';
-
-      Future<Socket> connect() async {
-        // 1. Try default system DNS lookup
-        try {
-          final addresses = await InternetAddress.lookup(uri.host)
-              .timeout(const Duration(milliseconds: 1500));
-          if (addresses.isNotEmpty) {
-            final rawSocket = await Socket.connect(addresses.first, uri.port);
-            if (isSecure) {
-              return await SecureSocket.secure(
-                rawSocket,
-                host: uri.host,
-                context: context,
-                onBadCertificate: (cert) => true,
-              );
-            }
-            return rawSocket;
-          }
-        } catch (_) {
-          // Fall through to fallback resolver
-        }
-
-        // 2. Static host map fallback (handles broken emulator DNS forwarding)
-        final fallbackIp = _staticHostMap[uri.host];
-        final hostTarget =
-            fallbackIp != null ? InternetAddress(fallbackIp) : uri.host;
-        final rawSocket = await Socket.connect(hostTarget, uri.port);
-        if (isSecure) {
-          return await SecureSocket.secure(
-            rawSocket,
-            host: uri.host,
-            context: context,
-            onBadCertificate: (cert) => true,
-          );
-        }
-        return rawSocket;
-      }
-
-      return ConnectionTask.fromSocket(connect(), () {});
-    };
-    return client;
-  }
-}
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = AppHttpOverrides();
   GoRouter.optionURLReflectsImperativeAPIs = true;
   usePathUrlStrategy();
 
-  await initSupabase();
+  try {
+    await LocalDatabase.instance.init();
+  } catch (e, stack) {
+    debugPrint('LocalDatabase initialization error: $e\n$stack');
+  }
 
-  await FlutterFlowTheme.initialize();
+  try {
+    await FlutterFlowTheme.initialize();
+  } catch (e, stack) {
+    debugPrint('FlutterFlowTheme initialization error: $e\n$stack');
+  }
 
   final appState = FFAppState(); // Initialize FFAppState
-  await appState.initializePersistedState();
+  try {
+    await appState.initializePersistedState();
+  } catch (e, stack) {
+    debugPrint('FFAppState initialization error: $e\n$stack');
+  }
 
   runApp(ChangeNotifierProvider(
     create: (context) => appState,
@@ -94,7 +50,7 @@ class MyApp extends StatefulWidget {
       context.findAncestorStateOfType<_MyAppState>()!;
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   ThemeMode _themeMode = FlutterFlowTheme.themeMode;
 
   late AppStateNotifier _appStateNotifier;
@@ -116,17 +72,23 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _appStateNotifier = AppStateNotifier.instance;
     _router = createRouter(_appStateNotifier);
-    Future.delayed(
-      Duration(milliseconds: 1000),
-      () => _appStateNotifier.stopShowingSplashImage(),
-    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh local database streams when returning from automation
+      LocalDatabase.instance.notifyAll();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 

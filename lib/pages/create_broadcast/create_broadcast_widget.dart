@@ -1,5 +1,4 @@
 import '/backend/backend.dart';
-import '/backend/supabase/supabase_config.dart';
 import '/components/create_campaign_from_history_sheet.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
@@ -134,7 +133,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
       // Includes the device_id retrieved from FFAppState().userDeviceUuid
       // in the Supabase public.campaigns insert payload.
       // -----------------------------------------------------------------------
-      final campaignInsert = await supabase
+      final campaignInsert = await localDb
           .from(CampaignsRecord.tableName)
           .insert(createCampaignsRecordData(
             deviceId: FFAppState().userDeviceUuid,
@@ -153,7 +152,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
           .single();
       final campaignId = campaignInsert['id'].toString();
 
-      await supabase.from(ContactsRecord.tableName).insert(
+      await localDb.from(ContactsRecord.tableName).insert(
         contacts
             .map((contact) => createContactsRecordData(
                   campaignId: campaignId,

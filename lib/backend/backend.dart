@@ -1,8 +1,6 @@
 import 'dart:async';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-import '/backend/supabase/supabase_config.dart';
+import '/backend/sqlite/local_database.dart';
 import '../flutter_flow/flutter_flow_util.dart';
 import '/app_state.dart';
 import 'schema/util/supabase_util.dart';
@@ -12,7 +10,7 @@ import 'schema/contacts_record.dart';
 import 'schema/attachments_record.dart';
 
 export 'dart:async' show StreamSubscription;
-export '/backend/supabase/supabase_config.dart';
+export '/backend/sqlite/local_database.dart';
 export 'schema/index.dart';
 export 'schema/util/supabase_util.dart';
 export 'schema/util/schema_util.dart';
@@ -20,6 +18,9 @@ export 'schema/util/schema_util.dart';
 export 'schema/campaigns_record.dart';
 export 'schema/contacts_record.dart';
 export 'schema/attachments_record.dart';
+
+// Backward compatibility alias so existing calls to supabase.from() work seamlessly
+LocalDatabase get supabase => localDb;
 
 /// Filter/ordering wrapper that mirrors the generated FlutterFlow query
 /// builder API and translates into PostgREST filters.
@@ -82,9 +83,7 @@ class _QueryFilter {
 }
 
 // ---------------------------------------------------------------------------
-// 3. FETCHING CAMPAIGNS: AUTOMATIC ANONYMOUS DEVICE_ID FILTERING
-// Filters public.campaigns queries to only return records matching the current
-// user's saved 'user_device_uuid'.
+// 3. FETCHING CAMPAIGNS (OFFLINE LOCAL SQLITE)
 // ---------------------------------------------------------------------------
 Future<int> queryCampaignsRecordCount({
   Query Function(Query)? queryBuilder,
@@ -92,13 +91,7 @@ Future<int> queryCampaignsRecordCount({
 }) =>
     queryCollectionCount(
       CampaignsRecord.tableName,
-      queryBuilder: (q) {
-        var query = q.where('device_id', isEqualTo: FFAppState().userDeviceUuid);
-        if (queryBuilder != null) {
-          query = queryBuilder(query);
-        }
-        return query;
-      },
+      queryBuilder: queryBuilder,
       limit: limit,
     );
 
@@ -110,13 +103,7 @@ Stream<List<CampaignsRecord>> queryCampaignsRecord({
     queryCollection(
       CampaignsRecord.tableName,
       CampaignsRecord.fromMap,
-      queryBuilder: (q) {
-        var query = q.where('device_id', isEqualTo: FFAppState().userDeviceUuid);
-        if (queryBuilder != null) {
-          query = queryBuilder(query);
-        }
-        return query;
-      },
+      queryBuilder: queryBuilder,
       limit: limit,
       singleRecord: singleRecord,
     );
@@ -129,13 +116,7 @@ Future<List<CampaignsRecord>> queryCampaignsRecordOnce({
     queryCollectionOnce(
       CampaignsRecord.tableName,
       CampaignsRecord.fromMap,
-      queryBuilder: (q) {
-        var query = q.where('device_id', isEqualTo: FFAppState().userDeviceUuid);
-        if (queryBuilder != null) {
-          query = queryBuilder(query);
-        }
-        return query;
-      },
+      queryBuilder: queryBuilder,
       limit: limit,
       singleRecord: singleRecord,
     );
@@ -214,6 +195,89 @@ Future<List<AttachmentsRecord>> queryAttachmentsRecordOnce({
       singleRecord: singleRecord,
     );
 
+class _SqlClause {
+  final String? where;
+  final List<Object?> whereArgs;
+  final String? orderBy;
+  final int? limit;
+
+  _SqlClause({this.where, required this.whereArgs, this.orderBy, this.limit});
+}
+
+_SqlClause _translateQuery(Query query,
+    {int limit = -1, bool singleRecord = false}) {
+  final whereParts = <String>[];
+  final whereArgs = <Object?>[];
+
+  for (final f in query._filters) {
+    switch (f.op) {
+      case 'eq':
+        whereParts.add('${f.field} = ?');
+        whereArgs.add(f.value is bool ? ((f.value as bool) ? 1 : 0) : f.value);
+        break;
+      case 'neq':
+        whereParts.add('${f.field} != ?');
+        whereArgs.add(f.value is bool ? ((f.value as bool) ? 1 : 0) : f.value);
+        break;
+      case 'lt':
+        whereParts.add('${f.field} < ?');
+        whereArgs.add(f.value);
+        break;
+      case 'lte':
+        whereParts.add('${f.field} <= ?');
+        whereArgs.add(f.value);
+        break;
+      case 'gt':
+        whereParts.add('${f.field} > ?');
+        whereArgs.add(f.value);
+        break;
+      case 'gte':
+        whereParts.add('${f.field} >= ?');
+        whereArgs.add(f.value);
+        break;
+      case 'is':
+        if (f.value == null) {
+          whereParts.add('${f.field} IS NULL');
+        } else {
+          whereParts.add('${f.field} IS ?');
+          whereArgs.add(f.value);
+        }
+        break;
+      case 'in':
+        final list = f.value as List;
+        if (list.isEmpty) {
+          whereParts.add('1 = 0');
+        } else {
+          final placeholders = List.filled(list.length, '?').join(', ');
+          whereParts.add('${f.field} IN ($placeholders)');
+          whereArgs.addAll(list);
+        }
+        break;
+    }
+  }
+
+  String? orderBy;
+  if (query.orderField != null) {
+    orderBy = '${query.orderField} ${query.orderDescending ? 'DESC' : 'ASC'}';
+  }
+
+  int? finalLimit;
+  if (singleRecord) {
+    finalLimit = 1;
+  } else if (limit > 0) {
+    finalLimit = limit;
+  } else if (query.limitValue != null) {
+    finalLimit = query.limitValue;
+  }
+
+  return _SqlClause(
+    where: whereParts.isNotEmpty ? whereParts.join(' AND ') : null,
+    whereArgs: whereArgs,
+    orderBy: orderBy,
+    limit: finalLimit,
+  );
+}
+
 Future<int> queryCollectionCount(
   String table, {
   Query Function(Query)? queryBuilder,
@@ -221,18 +285,12 @@ Future<int> queryCollectionCount(
 }) async {
   final builder = queryBuilder ?? (q) => q;
   final query = builder(Query());
-  dynamic request = supabase.from(table).select('id');
-  request = _applyFilters(request, query);
-  if (limit > 0) {
-    request = request.limit(limit);
-  }
-  try {
-    final response = await request.count(CountOption.exact).timeout(const Duration(seconds: 4));
-    return response.count;
-  } catch (err) {
-    print('Error querying $table: $err');
-    return 0;
-  }
+  final sql = _translateQuery(query, limit: limit);
+  return await localDb.queryCount(
+    table,
+    where: sql.where,
+    whereArgs: sql.whereArgs,
+  );
 }
 
 Stream<List<T>> queryCollection<T>(
@@ -241,72 +299,27 @@ Stream<List<T>> queryCollection<T>(
   Query Function(Query)? queryBuilder,
   int limit = -1,
   bool singleRecord = false,
-}) async* {
-  // 1. Immediately fetch initial data via REST for instant UI load & resilience
-  List<T> initialData = [];
-  try {
-    initialData = await queryCollectionOnce(
-      table,
-      recordBuilder,
-      queryBuilder: queryBuilder,
-      limit: limit,
-      singleRecord: singleRecord,
-    );
-  } catch (err) {
-    print('Initial queryCollectionOnce error for $table: $err');
-  }
-  yield initialData;
-
-  // 2. Set up realtime stream to listen for live updates
+}) {
   final builder = queryBuilder ?? (q) => q;
   final query = builder(Query());
+  final sql = _translateQuery(query, limit: limit, singleRecord: singleRecord);
 
-  final controller = StreamController<List<T>>();
-  StreamSubscription? subscription;
-
-  try {
-    SupabaseStreamBuilder stream = supabase.from(table).stream(primaryKey: ['id']);
-    stream = _applyStreamFilters(stream, query);
-    if (limit > 0 || singleRecord) {
-      stream = stream.limit(singleRecord ? 1 : limit);
-    } else {
-      stream = stream.limit(50000);
-    }
-
-    final mappedStream = stream.map((rows) => rows
-        .map(
-          (d) => safeGet(
-            () => recordBuilder(d),
-            (e) => print('Error serializing row in $table:\n$e'),
-          ),
-        )
-        .where((d) => d != null)
-        .map((d) => d!)
-        .toList());
-
-    subscription = mappedStream.listen(
-      (data) {
-        if (!controller.isClosed) {
-          controller.add(data);
-        }
-      },
-      onError: (err) {
-        print('Realtime stream error on $table: $err');
-      },
-      cancelOnError: false,
-    );
-  } catch (e) {
-    print('Failed to initialize realtime stream on $table: $e');
-  }
-
-  try {
-    await for (final data in controller.stream) {
-      yield data;
-    }
-  } finally {
-    await subscription?.cancel();
-    await controller.close();
-  }
+  return localDb
+      .streamQuery(
+        table,
+        where: sql.where,
+        whereArgs: sql.whereArgs,
+        orderBy: sql.orderBy,
+        limit: sql.limit,
+      )
+      .map((rows) => rows
+          .map((d) => safeGet(
+                () => recordBuilder(d),
+                (e) => print('Error serializing row in $table:\n$e'),
+              ))
+          .where((d) => d != null)
+          .map((d) => d!)
+          .toList());
 }
 
 Future<List<T>> queryCollectionOnce<T>(
@@ -318,92 +331,22 @@ Future<List<T>> queryCollectionOnce<T>(
 }) async {
   final builder = queryBuilder ?? (q) => q;
   final query = builder(Query());
-  dynamic request = supabase.from(table).select();
-  request = _applyFilters(request, query);
-  if (limit > 0 || singleRecord) {
-    request = request.limit(singleRecord ? 1 : limit);
-  } else {
-    request = request.limit(50000);
-  }
-  try {
-    final rows = await request.timeout(const Duration(seconds: 4));
-    final list = rows as List;
-    return list
-        .map(
-          (d) => safeGet(
-            () => recordBuilder(d as Map<String, dynamic>),
+  final sql = _translateQuery(query, limit: limit, singleRecord: singleRecord);
+
+  final rows = await localDb.query(
+    table,
+    where: sql.where,
+    whereArgs: sql.whereArgs,
+    orderBy: sql.orderBy,
+    limit: sql.limit,
+  );
+
+  return rows
+      .map((d) => safeGet(
+            () => recordBuilder(d),
             (e) => print('Error serializing row in $table:\n$e'),
-          ),
-        )
-        .where((d) => d != null)
-        .map((d) => d!)
-        .toList();
-  } catch (err) {
-    print('Error querying $table: $err');
-    return [];
-  }
-}
-
-dynamic _applyFilters(
-  dynamic request,
-  Query query,
-) {
-  var r = request;
-  for (final f in query._filters) {
-    switch (f.op) {
-      case 'eq':
-        r = r.eq(f.field, f.value);
-      case 'neq':
-        r = r.neq(f.field, f.value);
-      case 'lt':
-        r = r.lt(f.field, f.value);
-      case 'lte':
-        r = r.lte(f.field, f.value);
-      case 'gt':
-        r = r.gt(f.field, f.value);
-      case 'gte':
-        r = r.gte(f.field, f.value);
-      case 'is':
-        r = r.isFilter(f.field, f.value);
-      case 'in':
-        r = r.inFilter(f.field, f.value as List);
-    }
-  }
-  if (query.orderField != null) {
-    r = r.order(query.orderField!, ascending: !query.orderDescending);
-  }
-  if (query.limitValue != null) {
-    r = r.limit(query.limitValue!);
-  }
-  return r;
-}
-
-dynamic _applyStreamFilters(
-  dynamic stream,
-  Query query,
-) {
-  var s = stream;
-  for (final f in query._filters) {
-    switch (f.op) {
-      case 'eq':
-        s = s.eq(f.field, f.value);
-      case 'neq':
-        s = s.neq(f.field, f.value);
-      case 'lt':
-        s = s.lt(f.field, f.value);
-      case 'lte':
-        s = s.lte(f.field, f.value);
-      case 'gt':
-        s = s.gt(f.field, f.value);
-      case 'gte':
-        s = s.gte(f.field, f.value);
-    }
-  }
-  if (query.orderField != null) {
-    s = s.order(query.orderField!, ascending: !query.orderDescending);
-  }
-  if (query.limitValue != null) {
-    s = s.limit(query.limitValue!);
-  }
-  return s;
+          ))
+      .where((d) => d != null)
+      .map((d) => d!)
+      .toList();
 }

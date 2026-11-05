@@ -35,12 +35,14 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   bool _showCsvRequirements = false;
+  bool _isImporting = false;
   Key _streamKey = UniqueKey();
 
   @override
   void initState() {
     super.initState();
     _model = createModel(context, () => BroadcastListsModel());
+    LocalDatabase.instance.cleanupOrphanedCampaigns();
   }
 
   @override
@@ -78,12 +80,15 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
   }
 
   Future<void> _handleRefresh() async {
+    if (!mounted) return;
+    try {
+      await LocalDatabase.instance.cleanupOrphanedCampaigns();
+      await queryCampaignsRecordOnce();
+    } catch (_) {}
+    if (!mounted) return;
     setState(() {
       _streamKey = UniqueKey();
     });
-    try {
-      await queryCampaignsRecordOnce();
-    } catch (_) {}
   }
 
   @override
@@ -571,6 +576,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                   highlightColor:
                                                       Colors.transparent,
                                                   onTap: () async {
+                                                    if (_isImporting) return;
                                                     Map<String, dynamic> picked;
                                                     try {
                                                       picked =
@@ -580,10 +586,12 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                         catch (e) {
                                                       if (e.code !=
                                                           'cancelled') {
-                                                        showSnackbar(
-                                                          context,
-                                                          'Unable to read CSV: ${e.message}',
-                                                        );
+                                                        if (mounted) {
+                                                          showSnackbar(
+                                                            context,
+                                                            'Unable to read CSV: ${e.message}',
+                                                          );
+                                                        }
                                                       }
                                                       return;
                                                     }
@@ -593,10 +601,12 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                             ?.toString() ??
                                                         '';
                                                     if (!fileName.toLowerCase().endsWith('.csv')) {
-                                                      showSnackbar(
-                                                        context,
-                                                        'Only .csv files are allowed',
-                                                      );
+                                                      if (mounted) {
+                                                        showSnackbar(
+                                                          context,
+                                                          'Only .csv files are allowed',
+                                                        );
+                                                      }
                                                       return;
                                                     }
 
@@ -610,69 +620,94 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                         csvRowsToContacts(
                                                             rows);
                                                     if (contacts.isEmpty) {
-                                                      showSnackbar(
-                                                        context,
-                                                        'No contacts found. Ensure your CSV has \'Name\' and \'Phone\' columns.',
-                                                      );
+                                                      if (mounted) {
+                                                        showSnackbar(
+                                                          context,
+                                                          'No contacts found. Ensure your CSV has \'Name\' and \'Phone\' columns.',
+                                                        );
+                                                      }
                                                       return;
                                                     }
 
-                                                    final campaignName =
-                                                        fileName.isEmpty
-                                                            ? 'CSV Import'
-                                                            : fileName;
-                                                    final campaignInsert =
-                                                        await supabase
-                                                            .from(CampaignsRecord
-                                                                .tableName)
-                                                            .insert(
-                                                                createCampaignsRecordData(
-                                                              deviceId:
-                                                                  FFAppState()
-                                                                      .userDeviceUuid,
-                                                              name:
-                                                                  campaignName,
-                                                              contactCount:
-                                                                  contacts
-                                                                      .length,
-                                                              createdAt:
-                                                                  DateTime.now()
-                                                                      .toIso8601String(),
-                                                              status: 'Ready',
-                                                              messageBody: '',
-                                                              delaySeconds: 6,
-                                                              randomizeDelay:
-                                                                  true,
-                                                              skipInvalid: true,
-                                                              autoRetry: false,
-                                                              currentIndex: 0,
-                                                            ))
-                                                            .select()
-                                                            .single();
-                                                    final campaignId = campaignInsert[
-                                                        'id'];
+                                                    setState(() {
+                                                      _isImporting = true;
+                                                    });
 
-                                                    await supabase
-                                                        .from(ContactsRecord
-                                                            .tableName)
-                                                        .insert(contacts
-                                                            .map((contact) =>
-                                                                createContactsRecordData(
-                                                                  campaignId:
-                                                                      campaignId,
-                                                                  name: contact[
-                                                                      'name'],
-                                                                  phone: contact[
-                                                                      'phone'],
-                                                                  status:
-                                                                      'Pending',
-                                                                ))
-                                                            .toList());
+                                                    try {
+                                                      final campaignName =
+                                                          fileName.isEmpty
+                                                              ? 'CSV Import'
+                                                              : fileName;
+                                                      final campaignInsert =
+                                                          await supabase
+                                                              .from(CampaignsRecord
+                                                                  .tableName)
+                                                              .insert(
+                                                                  createCampaignsRecordData(
+                                                                deviceId:
+                                                                    FFAppState()
+                                                                        .userDeviceUuid,
+                                                                name:
+                                                                    campaignName,
+                                                                contactCount:
+                                                                    contacts
+                                                                        .length,
+                                                                createdAt:
+                                                                    DateTime.now()
+                                                                        .toIso8601String(),
+                                                                status: 'Ready',
+                                                                messageBody: '',
+                                                                delaySeconds: 6,
+                                                                randomizeDelay:
+                                                                    true,
+                                                                skipInvalid: true,
+                                                                autoRetry: false,
+                                                                currentIndex: 0,
+                                                              ))
+                                                              .select()
+                                                              .single();
+                                                      final campaignId = campaignInsert[
+                                                          'id'];
 
-                                                    showSnackbar(
-                                                      context,
-                                                      'Imported ${contacts.length} contacts',
-                                                    );
+                                                      await supabase
+                                                          .from(ContactsRecord
+                                                              .tableName)
+                                                          .insert(contacts
+                                                              .map((contact) =>
+                                                                  createContactsRecordData(
+                                                                    campaignId:
+                                                                        campaignId,
+                                                                    name: contact[
+                                                                        'name'],
+                                                                    phone: contact[
+                                                                        'phone'],
+                                                                    status:
+                                                                        'Pending',
+                                                                  ))
+                                                              .toList());
+
+                                                      await _handleRefresh();
+
+                                                      if (mounted) {
+                                                        showSnackbar(
+                                                          context,
+                                                          'Imported ${contacts.length} contacts',
+                                                        );
+                                                      }
+                                                    } catch (e) {
+                                                      if (mounted) {
+                                                        showSnackbar(
+                                                          context,
+                                                          'Failed to import CSV: $e',
+                                                        );
+                                                      }
+                                                    } finally {
+                                                      if (mounted) {
+                                                        setState(() {
+                                                          _isImporting = false;
+                                                        });
+                                                      }
+                                                    }
                                                   },
                                                   child: wrapWithModel(
                                                     model: _model.buttonModel1,
@@ -690,12 +725,14 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                       ),
                                                       iconPresent: true,
                                                       iconEndPresent: false,
-                                                      content: 'Import CSV',
+                                                      content: _isImporting
+                                                          ? 'Importing...'
+                                                          : 'Import CSV',
                                                       variant: 'primary',
                                                       size: 'medium',
                                                       fullWidth: false,
-                                                      loading: false,
-                                                      disabled: false,
+                                                      loading: _isImporting,
+                                                      disabled: _isImporting,
                                                     ),
                                                   ),
                                                 ),
@@ -712,9 +749,10 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                   highlightColor:
                                                       Colors.transparent,
                                                   onTap: () async {
-                                                    context.pushNamed(
+                                                    await context.pushNamed(
                                                         CreateBroadcastWidget
                                                             .routeName);
+                                                    await _handleRefresh();
                                                   },
                                                   child: wrapWithModel(
                                                     model: _model.buttonModel2,
@@ -875,36 +913,90 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                       itemCount: displayCampaigns.length,
                                                       itemBuilder: (context, itemIndex) {
                                                         final itemItem = displayCampaigns[itemIndex];
-                                                        return InkWell(
-                                                          splashColor: Colors.transparent,
-                                                          focusColor: Colors.transparent,
-                                                          hoverColor: Colors.transparent,
-                                                          highlightColor: Colors.transparent,
-                                                          onTap: () async {
-                                                            context.pushNamed(
-                                                              BroadcastDetailsWidget.routeName,
-                                                              queryParameters: {
-                                                                'campaignId': serializeParam(
-                                                                  itemItem.id,
-                                                                  ParamType.String,
-                                                                ),
-                                                              }.withoutNulls,
+                                                        return Dismissible(
+                                                          key: Key('dismiss_${itemItem.id}'),
+                                                          direction: DismissDirection.endToStart,
+                                                          background: Container(
+                                                            margin: const EdgeInsets.symmetric(vertical: 4.0),
+                                                            alignment: Alignment.centerRight,
+                                                            padding: const EdgeInsets.only(right: 20.0),
+                                                            decoration: BoxDecoration(
+                                                              color: FlutterFlowTheme.of(context).error,
+                                                              borderRadius: BorderRadius.circular(20.0),
+                                                            ),
+                                                            child: const Icon(
+                                                              Icons.delete_outline_rounded,
+                                                              color: Colors.white,
+                                                              size: 26.0,
+                                                            ),
+                                                          ),
+                                                          confirmDismiss: (direction) async {
+                                                            return await showDialog<bool>(
+                                                              context: context,
+                                                              builder: (ctx) => AlertDialog(
+                                                                title: const Text('Delete Campaign'),
+                                                                content: Text(
+                                                                    'Are you sure you want to delete "${itemItem.name}"?'),
+                                                                actions: [
+                                                                  TextButton(
+                                                                    onPressed: () =>
+                                                                        Navigator.of(ctx).pop(false),
+                                                                    child: const Text('Cancel'),
+                                                                  ),
+                                                                  TextButton(
+                                                                    onPressed: () =>
+                                                                        Navigator.of(ctx).pop(true),
+                                                                    style: TextButton.styleFrom(
+                                                                      foregroundColor:
+                                                                          FlutterFlowTheme.of(context).error,
+                                                                    ),
+                                                                    child: const Text('Delete'),
+                                                                  ),
+                                                                ],
+                                                              ),
                                                             );
                                                           },
-                                                          child: BroadcastCardWidget(
-                                                            key: Key('Key189_${itemIndex}_of_${displayCampaigns.length}'),
-                                                            tapAction: 'navigate("broadcast_details", {campaign_id: "${itemItem.id}"})',
-                                                            name: itemItem.name,
-                                                            count: itemItem.contactCount.toString(),
-                                                            date: _formatCampaignDate(itemItem.createdAt),
-                                                            status: itemItem.status,
-                                                            statusColor: itemItem.status == 'Ready'
-                                                                ? FlutterFlowTheme.of(context).success
-                                                                : (itemItem.status == 'Sending'
-                                                                    ? FlutterFlowTheme.of(context).warning
-                                                                    : (itemItem.status == 'Completed'
-                                                                        ? FlutterFlowTheme.of(context).info
-                                                                        : FlutterFlowTheme.of(context).error)),
+                                                          onDismissed: (direction) async {
+                                                            await localDb.delete(
+                                                              CampaignsRecord.tableName,
+                                                              where: 'id = ?',
+                                                              whereArgs: [itemItem.id],
+                                                            );
+                                                            showSnackbar(context, 'Campaign deleted');
+                                                            await _handleRefresh();
+                                                          },
+                                                          child: InkWell(
+                                                            splashColor: Colors.transparent,
+                                                            focusColor: Colors.transparent,
+                                                            hoverColor: Colors.transparent,
+                                                            highlightColor: Colors.transparent,
+                                                            onTap: () async {
+                                                              await context.pushNamed(
+                                                                BroadcastDetailsWidget.routeName,
+                                                                queryParameters: {
+                                                                  'campaignId': serializeParam(
+                                                                    itemItem.id,
+                                                                    ParamType.String,
+                                                                  ),
+                                                                }.withoutNulls,
+                                                              );
+                                                              await _handleRefresh();
+                                                            },
+                                                            child: BroadcastCardWidget(
+                                                              key: Key('Key189_${itemIndex}_of_${displayCampaigns.length}'),
+                                                              tapAction: 'navigate("broadcast_details", {campaign_id: "${itemItem.id}"})',
+                                                              name: itemItem.name,
+                                                              count: itemItem.contactCount.toString(),
+                                                              date: _formatCampaignDate(itemItem.createdAt),
+                                                              status: itemItem.status,
+                                                              statusColor: itemItem.status == 'Ready'
+                                                                  ? FlutterFlowTheme.of(context).success
+                                                                  : (itemItem.status == 'Sending'
+                                                                      ? FlutterFlowTheme.of(context).warning
+                                                                      : (itemItem.status == 'Completed'
+                                                                          ? FlutterFlowTheme.of(context).info
+                                                                          : FlutterFlowTheme.of(context).error)),
+                                                            ),
                                                           ),
                                                         );
                                                       },

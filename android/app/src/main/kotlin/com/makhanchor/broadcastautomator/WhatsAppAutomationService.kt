@@ -78,6 +78,7 @@ class WhatsAppAutomationService : AccessibilityService() {
     private var skipped = 0
     private var elapsedRunTimeMs = 0L
     private var lastResumeTimeMs = 0L
+    private var customStatusText: String? = null
 
     private var overlayView: ProgressOverlayView? = null
 
@@ -368,8 +369,78 @@ class WhatsAppAutomationService : AccessibilityService() {
         val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
         if (validAttachments.size > 1 && message.isNotEmpty()) {
             populateCaptionIfPresent(root, message)
+        } else if (validAttachments.isEmpty() && message.isNotEmpty()) {
+            populateChatInputIfEmpty(root, message)
         }
         val send = findSendButton(root)
+        if (send != null) {
+            val preSendDelay = j.preSendDelaySeconds
+            if (preSendDelay > 0) {
+                startPreSendCountdown(j, contact, attempt, preSendDelay)
+            } else {
+                executeSendClick(j, contact, attempt)
+            }
+        } else if (elapsed >= SEND_TIMEOUT_MS) {
+            retryOrFail(j, contact, attempt)
+        } else {
+            mainHandler.postDelayed(
+                { waitForSendButton(j, contact, attempt, elapsed + POLL_MS) },
+                POLL_MS,
+            )
+        }
+    }
+
+    private fun startPreSendCountdown(
+        j: WaJob,
+        contact: WaContact,
+        attempt: Int,
+        secondsRemaining: Int,
+    ) {
+        if (!running || stopped) return
+        if (paused) {
+            mainHandler.postDelayed(
+                { startPreSendCountdown(j, contact, attempt, secondsRemaining) },
+                POLL_MS,
+            )
+            return
+        }
+        if (secondsRemaining <= 0) {
+            customStatusText = null
+            updateOverlay()
+            executeSendClick(j, contact, attempt)
+            return
+        }
+
+        customStatusText = "Sending in ${secondsRemaining}s..."
+        updateOverlay()
+
+        mainHandler.postDelayed(
+            { startPreSendCountdown(j, contact, attempt, secondsRemaining - 1) },
+            1000L,
+        )
+    }
+
+    private fun executeSendClick(
+        j: WaJob,
+        contact: WaContact,
+        attempt: Int,
+    ) {
+        if (!running || stopped) return
+        if (paused) {
+            mainHandler.postDelayed(
+                { executeSendClick(j, contact, attempt) },
+                POLL_MS,
+            )
+            return
+        }
+        customStatusText = null
+        val root = rootInActiveWindow
+        val send = if (root != null && isWhatsAppWindow(root.packageName?.toString())) {
+            findSendButton(root)
+        } else {
+            null
+        }
+
         if (send != null) {
             val clicked = performClickOnNearestClickable(send)
             if (!clicked) {
@@ -383,11 +454,9 @@ class WhatsAppAutomationService : AccessibilityService() {
                 },
                 CONFIRM_MS,
             )
-        } else if (elapsed >= SEND_TIMEOUT_MS) {
-            retryOrFail(j, contact, attempt)
         } else {
             mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, elapsed + POLL_MS) },
+                { waitForSendButton(j, contact, attempt, 0L) },
                 POLL_MS,
             )
         }
@@ -403,6 +472,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun handleInvalid(contact: WaContact) {
         val j = job ?: return
+        customStatusText = null
         if (j.skipInvalid) {
             skipped++
             markContact(contact, "Skipped")
@@ -417,6 +487,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun handleFailure(contact: WaContact) {
         if (!running || stopped) return
+        customStatusText = null
         failed++
         markContact(contact, "Failed")
         currentIndex++
@@ -426,6 +497,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun markSent(contact: WaContact) {
         if (!running || stopped) return
+        customStatusText = null
         sent++
         markContact(contact, "Sent")
         currentIndex++
@@ -446,13 +518,13 @@ class WhatsAppAutomationService : AccessibilityService() {
     private fun markContact(contact: WaContact, status: String) {
         BroadcastStore.recordContactResult(this, contact.id, contact.name, contact.phone, status)
         if (contact.id.isNotEmpty()) {
-            SupabaseSync.patch("contacts", contact.id, mapOf("status" to status))
+            LocalDbSync.update(this, "contacts", contact.id, mapOf("status" to status))
         }
     }
 
     private fun updateCampaign(fields: Map<String, Any>) {
         val campaignId = job?.campaignId ?: return
-        SupabaseSync.patch("campaigns", campaignId, fields)
+        LocalDbSync.update(this, "campaigns", campaignId, fields)
     }
 
     // ---- Overlay + state ----
@@ -472,6 +544,7 @@ class WhatsAppAutomationService : AccessibilityService() {
             currentContactName = currentContact?.name ?: "",
             currentContactPhone = currentContact?.phone ?: "",
             delaySeconds = j?.delaySeconds ?: 6,
+            statusText = customStatusText,
         )
     }
 
@@ -589,6 +662,45 @@ class WhatsAppAutomationService : AccessibilityService() {
                 if (vid.contains("caption") || vid.contains("entry") ||
                     hint.contains("caption") || hint.contains("message") ||
                     desc.contains("caption") || desc.contains("message")) {
+                    return node
+                }
+                if (fallback == null) {
+                    fallback = node
+                }
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return fallback
+    }
+
+    private fun populateChatInputIfEmpty(root: AccessibilityNodeInfo, message: String): Boolean {
+        if (message.isEmpty()) return false
+        val inputNode = findChatInput(root) ?: return false
+        val currentText = inputNode.text?.toString() ?: ""
+        if (currentText.isNotEmpty()) {
+            return true
+        }
+        val arguments = Bundle().apply {
+            putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                message,
+            )
+        }
+        return inputNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+    }
+
+    private fun findChatInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var fallback: AccessibilityNodeInfo? = null
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val vid = node.viewIdResourceName?.lowercase() ?: ""
+            val cls = node.className?.toString() ?: ""
+            if (cls.contains("EditText") || node.isEditable) {
+                if (vid.contains("entry") || vid.contains("message")) {
                     return node
                 }
                 if (fallback == null) {

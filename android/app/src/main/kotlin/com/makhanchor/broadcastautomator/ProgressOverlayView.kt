@@ -493,8 +493,9 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
             toggleButton.text = "Resume"
         } else {
             statusDotView.background = roundedBox(0xFF25D366.toInt(), 0, 0f, 999f)
-            statusTextView.text = "Sending in progress..."
-            progressLabelView.text = "Sending in progress..."
+            val currentStatus = state.statusText ?: "Sending in progress..."
+            statusTextView.text = currentStatus
+            progressLabelView.text = currentStatus
             toggleButton.text = "Pause"
         }
 
@@ -581,4 +582,5 @@ data class BroadcastState(
     val currentContactName: String = "",
     val currentContactPhone: String = "",
     val delaySeconds: Int = 6,
+    val statusText: String? = null,
 )

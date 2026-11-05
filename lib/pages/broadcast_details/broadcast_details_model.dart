@@ -22,6 +22,8 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
 
   int? delaySeconds;
 
+  int? preSendDelaySeconds;
+
   bool? randomizeDelay;
 
   bool? skipInvalid = true;
@@ -41,6 +43,8 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
   late TextFieldModel textFieldModel;
   // Model for Slider.
   late SliderModel sliderModel;
+  // Model for Pre-Send Delay Slider.
+  late SliderModel preSendDelaySliderModel;
   // Model for Switch.
   late SwitchComponentModel switchModel1;
   // Model for Switch.
@@ -56,6 +60,7 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
   void initState(BuildContext context) {
     textFieldModel = createModel(context, () => TextFieldModel());
     sliderModel = createModel(context, () => SliderModel());
+    preSendDelaySliderModel = createModel(context, () => SliderModel());
     switchModel1 = createModel(context, () => SwitchComponentModel());
     switchModel2 = createModel(context, () => SwitchComponentModel());
     switchModelAutoPause = createModel(context, () => SwitchComponentModel());
@@ -69,6 +74,7 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
     autoPauseMinutesFocusNode?.dispose();
     textFieldModel.dispose();
     sliderModel.dispose();
+    preSendDelaySliderModel.dispose();
     switchModel1.dispose();
     switchModel2.dispose();
     switchModelAutoPause.dispose();

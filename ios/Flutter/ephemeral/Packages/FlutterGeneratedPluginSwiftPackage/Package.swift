@@ -15,7 +15,6 @@ let package = Package(
         .library(name: "FlutterGeneratedPluginSwiftPackage", type: .static, targets: ["FlutterGeneratedPluginSwiftPackage"])
     ],
     dependencies: [
-        .package(name: "app_links", path: "../.packages/app_links-7.2.1"),
         .package(name: "path_provider_foundation", path: "../.packages/path_provider_foundation-2.4.0"),
         .package(name: "shared_preferences_foundation", path: "../.packages/shared_preferences_foundation-2.5.4"),
         .package(name: "url_launcher_ios", path: "../.packages/url_launcher_ios-6.3.3"),
@@ -25,7 +24,6 @@ let package = Package(
         .target(
             name: "FlutterGeneratedPluginSwiftPackage",
             dependencies: [
-                .product(name: "app-links", package: "app_links"),
                 .product(name: "path-provider-foundation", package: "path_provider_foundation"),
                 .product(name: "shared-preferences-foundation", package: "shared_preferences_foundation"),
                 .product(name: "url-launcher-ios", package: "url_launcher_ios"),

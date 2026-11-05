@@ -277,6 +277,10 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
           _model.delaySeconds = broadcastDetailsCampaignsRecord.delaySeconds;
         }
 
+        if (_model.preSendDelaySeconds == null) {
+          _model.preSendDelaySeconds = FFAppState().prefs.getInt('campaign_pre_send_delay_${broadcastDetailsCampaignsRecord.id}') ?? 2;
+        }
+
         if (_model.randomizeDelay == null) {
           _model.randomizeDelay = broadcastDetailsCampaignsRecord.randomizeDelay;
         }
@@ -495,19 +499,94 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                           ),
                                         ].divide(SizedBox(width: 16.0)),
                                       ),
-                                      FlutterFlowIconButton(
-                                        borderRadius: 8.0,
-                                        buttonSize: 40.0,
-                                        fillColor: Colors.transparent,
+                                      PopupMenuButton<String>(
                                         icon: Icon(
                                           Icons.more_vert_rounded,
                                           color: FlutterFlowTheme.of(context)
                                               .primaryText,
                                           size: 24.0,
                                         ),
-                                        onPressed: () {
-                                          print('IconButton pressed ...');
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12.0),
+                                        ),
+                                        onSelected: (value) async {
+                                          if (value == 'delete') {
+                                            final confirm =
+                                                await showDialog<bool>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: const Text(
+                                                    'Delete Campaign'),
+                                                content: Text(
+                                                    'Are you sure you want to delete "${broadcastDetailsCampaignsRecord.name}"? This action cannot be undone.'),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(ctx)
+                                                            .pop(false),
+                                                    child:
+                                                        const Text('Cancel'),
+                                                  ),
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(ctx)
+                                                            .pop(true),
+                                                    style: TextButton.styleFrom(
+                                                      foregroundColor:
+                                                          FlutterFlowTheme.of(
+                                                                  context)
+                                                              .error,
+                                                    ),
+                                                    child:
+                                                        const Text('Delete'),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (confirm == true && mounted) {
+                                              await localDb.delete(
+                                                CampaignsRecord.tableName,
+                                                where: 'id = ?',
+                                                whereArgs: [
+                                                  broadcastDetailsCampaignsRecord
+                                                      .id
+                                                ],
+                                              );
+                                              showSnackbar(context,
+                                                  'Campaign deleted');
+                                              context.goNamed(
+                                                  BroadcastListsWidget
+                                                      .routeName);
+                                            }
+                                          }
                                         },
+                                        itemBuilder: (context) => [
+                                          PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  color: FlutterFlowTheme.of(
+                                                          context)
+                                                      .error,
+                                                  size: 20,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  'Delete Campaign',
+                                                  style: TextStyle(
+                                                    color: FlutterFlowTheme.of(
+                                                            context)
+                                                        .error,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
@@ -1237,6 +1316,50 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                       absorbing: isCompleted,
                                                       child: Opacity(
                                                         opacity: isCompleted ? 0.75 : 1.0,
+                                                        child: wrapWithModel(
+                                                      model: _model.preSendDelaySliderModel,
+                                                      updateCallback: () =>
+                                                          safeSetState(() {}),
+                                                      child: SliderWidget(
+                                                        label: 'Delay Before Send',
+                                                        labelPresent: true,
+                                                        description:
+                                                            'Time gap after content entry before clicking send',
+                                                        descriptionPresent:
+                                                            true,
+                                                        valueLabel: (_model.preSendDelaySeconds ?? 2) == 0
+                                                            ? 'Immediate (0s)'
+                                                            : '${_model.preSendDelaySeconds ?? 2} seconds',
+                                                        valueLabelPresent: true,
+                                                        step: 1.0,
+                                                        divisions: 10,
+                                                        valuePercentage: (_model.preSendDelaySeconds ?? 2).toDouble(),
+                                                        min: 0.0,
+                                                        max: 10.0,
+                                                        onChanged: (val) {
+                                                          final seconds = val.round();
+                                                          _model.preSendDelaySeconds = seconds;
+                                                          FFAppState().prefs.setInt(
+                                                            'campaign_pre_send_delay_${broadcastDetailsCampaignsRecord.id}',
+                                                            seconds,
+                                                          );
+                                                          safeSetState(() {});
+                                                        },
+                                                        color:
+                                                            FlutterFlowTheme.of(
+                                                                    context)
+                                                                .primary,
+                                                        variant: 'Material',
+                                                        disabled: false,
+                                                        showTicks: true,
+                                                      ),
+                                                    ),
+                                                        ),
+                                                      ),
+                                                    AbsorbPointer(
+                                                      absorbing: isCompleted,
+                                                      child: Opacity(
+                                                        opacity: isCompleted ? 0.75 : 1.0,
                                                         child: Column(
                                                       mainAxisSize:
                                                           MainAxisSize.min,
@@ -1940,6 +2063,8 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                      _model.messageBody ?? '',
                                                  delaySeconds:
                                                      _model.delaySeconds ?? 6,
+                                                 preSendDelaySeconds:
+                                                     _model.preSendDelaySeconds ?? 2,
                                                  randomizeDelay:
                                                      _model.randomizeDelay ?? true,
                                                  autoRetry:

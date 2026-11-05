@@ -32,7 +32,7 @@ class AppStateNotifier extends ChangeNotifier {
 
   BaseAuthUser? initialUser;
   BaseAuthUser? user;
-  bool showSplashImage = true;
+  bool showSplashImage = false;
   String? _redirectLocation;
 
   /// Determines whether the app will refresh and build again when a sign
@@ -322,11 +322,19 @@ class FFRoute {
                 )
               : builder(context, ffParams);
           final child = appStateNotifier.loading
-              ? Center(
-                  child: SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: CircularProgressIndicator(),
+              ? Scaffold(
+                  backgroundColor:
+                      FlutterFlowTheme.of(context).primaryBackground,
+                  body: Center(
+                    child: SizedBox(
+                      width: 50,
+                      height: 50,
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          FlutterFlowTheme.of(context).primary,
+                        ),
+                      ),
+                    ),
                   ),
                 )
               : page;

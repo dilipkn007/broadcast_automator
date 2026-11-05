@@ -4,7 +4,7 @@ import 'package:collection/collection.dart';
 
 import '/backend/schema/util/supabase_util.dart';
 import '/backend/schema/util/schema_util.dart';
-import '/backend/supabase/supabase_config.dart';
+import '/backend/sqlite/local_database.dart';
 
 import 'index.dart';
 import '/flutter_flow/flutter_flow_util.dart';
@@ -80,9 +80,12 @@ class CampaignsRecord extends SupabaseRecord {
     _status = snapshotData['status'] as String?;
     _messageBody = snapshotData['message_body'] as String?;
     _delaySeconds = castToType<int>(snapshotData['delay_seconds']);
-    _randomizeDelay = snapshotData['randomize_delay'] as bool?;
-    _skipInvalid = snapshotData['skip_invalid'] as bool?;
-    _autoRetry = snapshotData['auto_retry'] as bool?;
+    _randomizeDelay = snapshotData['randomize_delay'] == true ||
+        snapshotData['randomize_delay'] == 1;
+    _skipInvalid = snapshotData['skip_invalid'] == true ||
+        snapshotData['skip_invalid'] == 1;
+    _autoRetry = snapshotData['auto_retry'] == true ||
+        snapshotData['auto_retry'] == 1;
     _currentIndex = castToType<int>(snapshotData['current_index']);
   }
 
@@ -94,54 +97,23 @@ class CampaignsRecord extends SupabaseRecord {
         mapFromSupabase(data),
       );
 
-  static Stream<CampaignsRecord> getDocument(String id) async* {
-    if (id.isEmpty) return;
-    try {
-      final doc = await getDocumentOnce(id);
-      if (doc != null) yield doc;
-    } catch (e) {
-      print('Initial getDocumentOnce error for $tableName: $e');
-    }
-
-    final controller = StreamController<CampaignsRecord>();
-    StreamSubscription? sub;
-    try {
-      final stream = supabase
-          .from(tableName)
-          .stream(primaryKey: ['id'])
-          .eq('id', id)
-          .map((rows) => rows.isNotEmpty ? fromMap(rows.first) : null)
-          .where((e) => e != null)
-          .map((e) => e!);
-
-      sub = stream.listen(
-        (data) {
-          if (!controller.isClosed) controller.add(data);
-        },
-        onError: (err) {
-          print('Realtime error on $tableName getDocument: $err');
-        },
-        cancelOnError: false,
-      );
-    } catch (e) {
-      print('Failed to setup realtime stream for $tableName: $e');
-    }
-
-    try {
-      await for (final data in controller.stream) {
-        yield data;
-      }
-    } finally {
-      await sub?.cancel();
-      await controller.close();
-    }
+  static Stream<CampaignsRecord> getDocument(String id) {
+    if (id.isEmpty) return const Stream.empty();
+    return localDb
+        .streamDocument(tableName, id)
+        .where((row) => row != null)
+        .map((row) => fromMap(row!));
   }
 
   static Future<CampaignsRecord?> getDocumentOnce(String id) async {
     try {
-      final rows = await supabase.from(tableName).select().eq('id', id).timeout(const Duration(seconds: 4));
+      final rows = await localDb.query(
+        tableName,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
       if (rows.isEmpty) return null;
-      return fromMap(rows.first as Map<String, dynamic>);
+      return fromMap(rows.first);
     } catch (e) {
       print('Error in getDocumentOnce for $tableName: $e');
       return null;
