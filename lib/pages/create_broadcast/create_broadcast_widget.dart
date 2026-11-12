@@ -4,7 +4,9 @@ import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/index.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '/services/native_bridge.dart';
 
 class CreateBroadcastWidget extends StatefulWidget {
   const CreateBroadcastWidget({
@@ -27,6 +29,8 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
   final List<_ContactRow> _rows = [_ContactRow()];
   bool _saving = false;
   bool _loadingSource = false;
+  bool _isImportingCsv = false;
+  bool _showAllContacts = false;
 
   @override
   void initState() {
@@ -69,6 +73,8 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
           _rows.add(row);
         }
 
+        _showAllContacts = _rows.length <= 50;
+
         if (_nameController.text.trim().isEmpty && campaign != null) {
           _nameController.text = '${campaign.name} (Follow-up)';
         }
@@ -85,9 +91,103 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
     }
   }
 
+  Future<void> _importFromCsv() async {
+    if (_isImportingCsv) return;
+    Map<String, dynamic> picked;
+    try {
+      picked = await NativeBridge.pickCsv();
+    } on PlatformException catch (e) {
+      if (e.code != 'cancelled' && mounted) {
+        showSnackbar(context, 'Unable to read CSV: ${e.message}');
+      }
+      return;
+    } catch (e) {
+      if (mounted) showSnackbar(context, 'Error selecting file: $e');
+      return;
+    }
+
+    final fileName = picked['name']?.toString() ?? '';
+    if (!fileName.toLowerCase().endsWith('.csv')) {
+      if (mounted) showSnackbar(context, 'Only .csv files are allowed');
+      return;
+    }
+
+    final csvText = picked['content']?.toString() ?? '';
+    final rows = parseCsv(csvText);
+    final contacts = csvRowsToContacts(rows);
+    if (contacts.isEmpty) {
+      if (mounted) {
+        showSnackbar(
+          context,
+          'No contacts found. Ensure your CSV has \'Name\' and \'Phone\' columns.',
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isImportingCsv = true;
+    });
+
+    try {
+      if (_nameController.text.trim().isEmpty) {
+        var baseName = fileName;
+        if (baseName.toLowerCase().endsWith('.csv')) {
+          baseName = baseName.substring(0, baseName.length - 4);
+        }
+        _nameController.text = baseName;
+      }
+
+      final isSingleEmptyRow = _rows.length == 1 &&
+          _rows[0].nameController.text.trim().isEmpty &&
+          _rows[0].phoneController.text.trim().isEmpty;
+
+      if (isSingleEmptyRow) {
+        for (final row in _rows) {
+          row.dispose();
+        }
+        _rows.clear();
+      }
+
+      for (final c in contacts) {
+        final row = _ContactRow();
+        row.nameController.text = c['name'] ?? '';
+        row.phoneController.text = c['phone'] ?? '';
+        _rows.add(row);
+      }
+
+      _showAllContacts = _rows.length <= 50;
+
+      if (mounted) {
+        showSnackbar(
+          context,
+          'Imported ${contacts.length} contacts from "$fileName"',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImportingCsv = false;
+        });
+      }
+    }
+  }
+
+  void _clearContacts() {
+    setState(() {
+      for (final row in _rows) {
+        row.dispose();
+      }
+      _rows.clear();
+      _rows.add(_ContactRow());
+      _showAllContacts = false;
+    });
+  }
+
   void _addRow() {
     setState(() {
       _rows.add(_ContactRow());
+      _showAllContacts = true;
     });
   }
 
@@ -295,85 +395,218 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
                       ),
                     ],
                   ),
-                  TextButton.icon(
-                    onPressed: () {
-                      showSelectHistoricalCampaignSheet(
-                        context,
-                        onCampaignSelected: (c) =>
-                            _loadFromHistoricalCampaign(c.id),
-                      );
-                    },
-                    icon: Icon(
-                      Icons.history_rounded,
-                      size: 16.0,
-                      color: FlutterFlowTheme.of(context).primary,
-                    ),
-                    label: Text(
-                      'Import from Past Campaign',
-                      style: GoogleFonts.inter(
-                        color: FlutterFlowTheme.of(context).primary,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
+                  if (_rows.length > 1 ||
+                      _rows[0].nameController.text.isNotEmpty ||
+                      _rows[0].phoneController.text.isNotEmpty)
+                    TextButton(
+                      onPressed: _clearContacts,
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: EdgeInsets.zero,
+                      ),
+                      child: Text(
+                        'Clear all',
+                        style: GoogleFonts.inter(
+                          color: FlutterFlowTheme.of(context).error,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                  ),
                 ],
+              ),
+              const SizedBox(height: 10.0),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _isImportingCsv ? null : _importFromCsv,
+                      icon: _isImportingCsv
+                          ? SizedBox(
+                              width: 14.0,
+                              height: 14.0,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.0,
+                                color: FlutterFlowTheme.of(context).primary,
+                              ),
+                            )
+                          : Icon(
+                              Icons.upload_file_rounded,
+                              size: 16.0,
+                              color: FlutterFlowTheme.of(context).primary,
+                            ),
+                      label: Text(
+                        _isImportingCsv ? 'Importing CSV...' : 'Import from CSV',
+                        style: GoogleFonts.inter(
+                          color: FlutterFlowTheme.of(context).primary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: FlutterFlowTheme.of(context)
+                              .primary
+                              .withOpacity(0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 8.0),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        showSelectHistoricalCampaignSheet(
+                          context,
+                          onCampaignSelected: (c) =>
+                              _loadFromHistoricalCampaign(c.id),
+                        );
+                      },
+                      icon: Icon(
+                        Icons.history_rounded,
+                        size: 16.0,
+                        color: FlutterFlowTheme.of(context).primary,
+                      ),
+                      label: Text(
+                        'Import from Past Campaign',
+                        style: GoogleFonts.inter(
+                          color: FlutterFlowTheme.of(context).primary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: FlutterFlowTheme.of(context)
+                              .primary
+                              .withOpacity(0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 8.0),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               if (_loadingSource)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 12.0),
+                  padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
                   child: LinearProgressIndicator(
                     color: FlutterFlowTheme.of(context).primary,
                     backgroundColor: FlutterFlowTheme.of(context).alternate,
                   ),
                 ),
               Padding(
-                padding: EdgeInsetsDirectional.fromSTEB(0.0, 4.0, 0.0, 16.0),
+                padding: EdgeInsetsDirectional.fromSTEB(0.0, 10.0, 0.0, 16.0),
                 child: Text(
-                  'Enter each contact\'s name and phone number',
+                  'Enter contact details manually or use an import option above',
                   style: FlutterFlowTheme.of(context).bodySmall,
                 ),
               ),
-              for (var i = 0; i < _rows.length; i++)
-                Padding(
-                  padding: EdgeInsetsDirectional.fromSTEB(0.0, 0.0, 0.0, 12.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+              Builder(
+                builder: (context) {
+                  final displayCount = _showAllContacts
+                      ? _rows.length
+                      : (_rows.length > 50 ? 50 : _rows.length);
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        flex: 4,
-                        child: TextFormField(
-                          controller: _rows[i].nameController,
-                          style: FlutterFlowTheme.of(context).bodyMedium,
-                          decoration: _contactDecoration('Name'),
-                          textInputAction: TextInputAction.next,
-                        ),
-                      ),
-                      SizedBox(width: 8.0),
-                      Expanded(
-                        flex: 4,
-                        child: TextFormField(
-                          controller: _rows[i].phoneController,
-                          style: FlutterFlowTheme.of(context).bodyMedium,
-                          decoration: _contactDecoration('Phone number'),
-                          keyboardType: TextInputType.phone,
-                          textInputAction: TextInputAction.next,
-                        ),
-                      ),
-                      if (_rows.length > 1)
-                        IconButton(
-                          onPressed: () => _removeRow(i),
-                          icon: Icon(
-                            Icons.remove_circle_outline_rounded,
-                            color: FlutterFlowTheme.of(context).secondaryText,
-                            size: 22.0,
+                      for (var i = 0; i < displayCount; i++)
+                        Padding(
+                          padding: EdgeInsetsDirectional.fromSTEB(
+                              0.0, 0.0, 0.0, 12.0),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: TextFormField(
+                                  controller: _rows[i].nameController,
+                                  style: FlutterFlowTheme.of(context).bodyMedium,
+                                  decoration: _contactDecoration('Name'),
+                                  textInputAction: TextInputAction.next,
+                                ),
+                              ),
+                              SizedBox(width: 8.0),
+                              Expanded(
+                                flex: 4,
+                                child: TextFormField(
+                                  controller: _rows[i].phoneController,
+                                  style: FlutterFlowTheme.of(context).bodyMedium,
+                                  decoration: _contactDecoration('Phone number'),
+                                  keyboardType: TextInputType.phone,
+                                  textInputAction: TextInputAction.next,
+                                ),
+                              ),
+                              if (_rows.length > 1)
+                                IconButton(
+                                  onPressed: () => _removeRow(i),
+                                  icon: Icon(
+                                    Icons.remove_circle_outline_rounded,
+                                    color: FlutterFlowTheme.of(context)
+                                        .secondaryText,
+                                    size: 22.0,
+                                  ),
+                                )
+                              else
+                                SizedBox(width: 48.0),
+                            ],
                           ),
-                        )
-                      else
-                        SizedBox(width: 48.0),
+                        ),
+                      if (_rows.length > 50 && !_showAllContacts)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12.0),
+                          padding: const EdgeInsets.all(12.0),
+                          decoration: BoxDecoration(
+                            color: FlutterFlowTheme.of(context)
+                                .secondaryBackground,
+                            borderRadius: BorderRadius.circular(8.0),
+                            border: Border.all(
+                              color: FlutterFlowTheme.of(context).alternate,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline_rounded,
+                                size: 18.0,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
+                              const SizedBox(width: 8.0),
+                              Expanded(
+                                child: Text(
+                                  'Showing first 50 of ${_rows.length} contacts for performance. All ${_rows.length} contacts will be included in the campaign.',
+                                  style:
+                                      FlutterFlowTheme.of(context).bodySmall,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () =>
+                                    setState(() => _showAllContacts = true),
+                                child: Text(
+                                  'Show All',
+                                  style: TextStyle(
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12.0,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                     ],
-                  ),
-                ),
+                  );
+                },
+              ),
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: TextButton.icon(

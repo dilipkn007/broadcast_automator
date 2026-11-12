@@ -4,15 +4,11 @@ import '/components/button/button_widget.dart';
 import '/flutter_flow/flutter_flow_icon_button.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
-import '/flutter_flow/flutter_flow_widgets.dart';
-import 'dart:ui';
 import '/flutter_flow/custom_functions.dart' as functions;
 import '/index.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '/services/native_bridge.dart';
 import 'broadcast_lists_model.dart';
 export 'broadcast_lists_model.dart';
 
@@ -34,8 +30,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
   bool _isSearching = false;
   final _searchController = TextEditingController();
   String _searchQuery = '';
-  bool _showCsvRequirements = false;
-  bool _isImporting = false;
+  bool _showAllLists = false;
   Key _streamKey = UniqueKey();
 
   @override
@@ -354,516 +349,137 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
-                                          Container(
-                                            decoration: BoxDecoration(
-                                              color:
-                                                  FlutterFlowTheme.of(context)
-                                                      .info10,
-                                              borderRadius:
-                                                  BorderRadius.circular(16.0),
-                                              shape: BoxShape.rectangle,
-                                              border: Border.all(
-                                                color:
-                                                    FlutterFlowTheme.of(context)
-                                                        .info30,
-                                                width: 1.0,
+                                          InkWell(
+                                            splashColor: Colors.transparent,
+                                            focusColor: Colors.transparent,
+                                            hoverColor: Colors.transparent,
+                                            highlightColor: Colors.transparent,
+                                            onTap: () async {
+                                              await context.pushNamed(
+                                                  CreateBroadcastWidget
+                                                      .routeName);
+                                              await _handleRefresh();
+                                            },
+                                            child: wrapWithModel(
+                                              model: _model.buttonModel2,
+                                              updateCallback: () =>
+                                                  safeSetState(() {}),
+                                              child: ButtonWidget(
+                                                icon: Icon(
+                                                  Icons.add_rounded,
+                                                  color: Colors.white,
+                                                  size: 24.0,
+                                                ),
+                                                iconPresent: true,
+                                                iconEndPresent: false,
+                                                content: 'Create',
+                                                variant: 'primary',
+                                                size: 'large',
+                                                fullWidth: true,
+                                                loading: false,
+                                                disabled: false,
                                               ),
                                             ),
-                                            child: Padding(
-                                              padding: const EdgeInsets.symmetric(
-                                                  horizontal: 16.0, vertical: 12.0),
-                                              child: Column(
+                                          ),
+                                          Builder(
+                                            builder: (context) {
+                                              final listWithIndex = columnPaddingCampaignsRecordList.asMap().entries.toList();
+                                              listWithIndex.sort((entryA, entryB) {
+                                                final a = entryA.value;
+                                                final b = entryB.value;
+                                                final dateA = _parseCampaignDate(a.createdAt);
+                                                final dateB = _parseCampaignDate(b.createdAt);
+                                                if (dateA != null && dateB != null) {
+                                                  final cmp = dateB.compareTo(dateA);
+                                                  if (cmp != 0) return cmp;
+                                                } else if (dateA != null) {
+                                                  return -1;
+                                                } else if (dateB != null) {
+                                                  return 1;
+                                                }
+                                                return entryB.key.compareTo(entryA.key);
+                                              });
+                                              final sortedCampaigns = listWithIndex.map((e) => e.value).toList();
+                                              final displayCampaigns = functions.filteredCampaigns(sortedCampaigns, _searchQuery);
+                                              final bool hasMoreThanEight = displayCampaigns.length > 8;
+                                              final bool isSearching = _searchQuery.trim().isNotEmpty;
+                                              final campaignsToShow = (_showAllLists || isSearching || !hasMoreThanEight)
+                                                  ? displayCampaigns
+                                                  : displayCampaigns.take(8).toList();
+
+                                              return Column(
                                                 mainAxisSize: MainAxisSize.min,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.start,
                                                 crossAxisAlignment:
                                                     CrossAxisAlignment.stretch,
                                                 children: [
-                                                  InkWell(
-                                                    borderRadius:
-                                                        BorderRadius.circular(8.0),
-                                                    onTap: () {
-                                                      setState(() {
-                                                        _showCsvRequirements =
-                                                            !_showCsvRequirements;
-                                                      });
-                                                    },
-                                                    child: Row(
-                                                      mainAxisSize:
-                                                          MainAxisSize.max,
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment
-                                                              .spaceBetween,
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .center,
-                                                      children: [
-                                                        Row(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .center,
-                                                          children: [
-                                                            Icon(
-                                                              Icons
-                                                                  .info_outline_rounded,
-                                                              color:
-                                                                  FlutterFlowTheme
-                                                                          .of(context)
-                                                                      .onInfo,
-                                                              size: 20.0,
+                                                  Row(
+                                                    mainAxisSize: MainAxisSize.max,
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .spaceBetween,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.center,
+                                                    children: [
+                                                      Text(
+                                                        'Recent Lists',
+                                                        style: FlutterFlowTheme.of(
+                                                                context)
+                                                            .titleMedium
+                                                            .override(
+                                                              font: GoogleFonts
+                                                                  .plusJakartaSans(
+                                                                fontWeight:
+                                                                    FontWeight.bold,
+                                                                fontStyle:
+                                                                    FlutterFlowTheme.of(
+                                                                            context)
+                                                                        .titleMedium
+                                                                        .fontStyle,
+                                                              ),
+                                                              letterSpacing: 0.0,
+                                                              fontWeight:
+                                                                  FontWeight.bold,
+                                                              fontStyle:
+                                                                  FlutterFlowTheme.of(
+                                                                          context)
+                                                                      .titleMedium
+                                                                      .fontStyle,
+                                                              lineHeight: 1.4,
                                                             ),
-                                                            const SizedBox(
-                                                                width: 8.0),
-                                                            Text(
-                                                              'CSV Requirements',
-                                                              style: FlutterFlowTheme
-                                                                      .of(context)
-                                                                  .titleSmall
-                                                                  .override(
-                                                                    font: GoogleFonts
-                                                                        .plusJakartaSans(
-                                                                      fontWeight:
-                                                                          FontWeight
-                                                                              .bold,
-                                                                    ),
-                                                                    color: FlutterFlowTheme
-                                                                            .of(context)
-                                                                        .onPrimaryContainer,
-                                                                    lineHeight:
-                                                                        1.4,
-                                                                  ),
+                                                      ),
+                                                      if (hasMoreThanEight && !isSearching)
+                                                        InkWell(
+                                                          splashColor: Colors.transparent,
+                                                          focusColor: Colors.transparent,
+                                                          hoverColor: Colors.transparent,
+                                                          highlightColor: Colors.transparent,
+                                                          onTap: () {
+                                                            setState(() {
+                                                              _showAllLists = !_showAllLists;
+                                                            });
+                                                          },
+                                                          child: wrapWithModel(
+                                                            model: _model.buttonModel3,
+                                                            updateCallback: () =>
+                                                                safeSetState(() {}),
+                                                            child: ButtonWidget(
+                                                              iconPresent: false,
+                                                              iconEndPresent: false,
+                                                              content: _showAllLists ? 'Show Less' : 'View All',
+                                                              variant: 'ghost',
+                                                              size: 'small',
+                                                              fullWidth: false,
+                                                              loading: false,
+                                                              disabled: false,
                                                             ),
-                                                          ],
-                                                        ),
-                                                        Icon(
-                                                          _showCsvRequirements
-                                                              ? Icons
-                                                                  .keyboard_arrow_up_rounded
-                                                              : Icons
-                                                                  .keyboard_arrow_down_rounded,
-                                                          color:
-                                                              FlutterFlowTheme
-                                                                      .of(context)
-                                                                  .onInfo,
-                                                          size: 22.0,
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                  if (_showCsvRequirements) ...[
-                                                    const SizedBox(height: 12.0),
-                                                    Text(
-                                                      'Ensure your CSV includes \'Name\' and \'Phone\' columns for successful import.',
-                                                      style: FlutterFlowTheme
-                                                              .of(context)
-                                                          .bodySmall
-                                                          .override(
-                                                            font: GoogleFonts
-                                                                .inter(),
-                                                            color: FlutterFlowTheme
-                                                                    .of(context)
-                                                                .onPrimaryContainer,
-                                                            lineHeight: 1.4,
-                                                          ),
-                                                    ),
-                                                    const SizedBox(height: 8.0),
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsetsDirectional
-                                                              .fromSTEB(
-                                                              4.0, 0.0, 4.0, 0.0),
-                                                      child: Container(
-                                                        decoration: BoxDecoration(
-                                                          color:
-                                                              FlutterFlowTheme
-                                                                      .of(context)
-                                                                  .surface50,
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(12.0),
-                                                          shape:
-                                                              BoxShape.rectangle,
-                                                        ),
-                                                        child: Padding(
-                                                          padding:
-                                                              const EdgeInsets
-                                                                  .all(16.0),
-                                                          child: Column(
-                                                            mainAxisSize:
-                                                                MainAxisSize.min,
-                                                            crossAxisAlignment:
-                                                                CrossAxisAlignment
-                                                                    .center,
-                                                            children: [
-                                                              Text(
-                                                                'Name | Phone',
-                                                                style: FlutterFlowTheme
-                                                                        .of(context)
-                                                                    .labelSmall
-                                                                    .override(
-                                                                      font: GoogleFonts
-                                                                          .inter(
-                                                                        fontWeight:
-                                                                            FontWeight.bold,
-                                                                      ),
-                                                                      color: FlutterFlowTheme
-                                                                              .of(context)
-                                                                          .primaryText,
-                                                                      lineHeight:
-                                                                          1.2,
-                                                                    ),
-                                                              ),
-                                                              const SizedBox(
-                                                                  height: 4.0),
-                                                              Text(
-                                                                'John Doe | 919876543210',
-                                                                style: FlutterFlowTheme
-                                                                        .of(context)
-                                                                    .labelSmall
-                                                                    .override(
-                                                                      font: GoogleFonts
-                                                                          .inter(),
-                                                                      color: FlutterFlowTheme
-                                                                              .of(context)
-                                                                          .secondaryText,
-                                                                      lineHeight:
-                                                                          1.2,
-                                                                    ),
-                                                              ),
-                                                              const SizedBox(
-                                                                  height: 4.0),
-                                                              Text(
-                                                                'Rahul | 919812345678',
-                                                                style: FlutterFlowTheme
-                                                                        .of(context)
-                                                                    .labelSmall
-                                                                    .override(
-                                                                      font: GoogleFonts
-                                                                          .inter(),
-                                                                      color: FlutterFlowTheme
-                                                                              .of(context)
-                                                                          .secondaryText,
-                                                                      lineHeight:
-                                                                          1.2,
-                                                                    ),
-                                                              ),
-                                                            ],
                                                           ),
                                                         ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                          Row(
-                                            mainAxisSize: MainAxisSize.max,
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.start,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.center,
-                                            children: [
-                                              Expanded(
-                                                flex: 1,
-                                                child: InkWell(
-                                                  splashColor:
-                                                      Colors.transparent,
-                                                  focusColor:
-                                                      Colors.transparent,
-                                                  hoverColor:
-                                                      Colors.transparent,
-                                                  highlightColor:
-                                                      Colors.transparent,
-                                                  onTap: () async {
-                                                    if (_isImporting) return;
-                                                    Map<String, dynamic> picked;
-                                                    try {
-                                                      picked =
-                                                          await NativeBridge
-                                                              .pickCsv();
-                                                    } on PlatformException
-                                                        catch (e) {
-                                                      if (e.code !=
-                                                          'cancelled') {
-                                                        if (mounted) {
-                                                          showSnackbar(
-                                                            context,
-                                                            'Unable to read CSV: ${e.message}',
-                                                          );
-                                                        }
-                                                      }
-                                                      return;
-                                                    }
-
-                                                    final fileName = picked[
-                                                                'name']
-                                                            ?.toString() ??
-                                                        '';
-                                                    if (!fileName.toLowerCase().endsWith('.csv')) {
-                                                      if (mounted) {
-                                                        showSnackbar(
-                                                          context,
-                                                          'Only .csv files are allowed',
-                                                        );
-                                                      }
-                                                      return;
-                                                    }
-
-                                                    final csvText = picked[
-                                                            'content']
-                                                        ?.toString() ??
-                                                        '';
-                                                    final rows =
-                                                        parseCsv(csvText);
-                                                    final contacts =
-                                                        csvRowsToContacts(
-                                                            rows);
-                                                    if (contacts.isEmpty) {
-                                                      if (mounted) {
-                                                        showSnackbar(
-                                                          context,
-                                                          'No contacts found. Ensure your CSV has \'Name\' and \'Phone\' columns.',
-                                                        );
-                                                      }
-                                                      return;
-                                                    }
-
-                                                    setState(() {
-                                                      _isImporting = true;
-                                                    });
-
-                                                    try {
-                                                      final campaignName =
-                                                          fileName.isEmpty
-                                                              ? 'CSV Import'
-                                                              : fileName;
-                                                      final campaignInsert =
-                                                          await supabase
-                                                              .from(CampaignsRecord
-                                                                  .tableName)
-                                                              .insert(
-                                                                  createCampaignsRecordData(
-                                                                deviceId:
-                                                                    FFAppState()
-                                                                        .userDeviceUuid,
-                                                                name:
-                                                                    campaignName,
-                                                                contactCount:
-                                                                    contacts
-                                                                        .length,
-                                                                createdAt:
-                                                                    DateTime.now()
-                                                                        .toIso8601String(),
-                                                                status: 'Ready',
-                                                                messageBody: '',
-                                                                delaySeconds: 6,
-                                                                randomizeDelay:
-                                                                    true,
-                                                                skipInvalid: true,
-                                                                autoRetry: false,
-                                                                currentIndex: 0,
-                                                              ))
-                                                              .select()
-                                                              .single();
-                                                      final campaignId = campaignInsert[
-                                                          'id'];
-
-                                                      await supabase
-                                                          .from(ContactsRecord
-                                                              .tableName)
-                                                          .insert(contacts
-                                                              .map((contact) =>
-                                                                  createContactsRecordData(
-                                                                    campaignId:
-                                                                        campaignId,
-                                                                    name: contact[
-                                                                        'name'],
-                                                                    phone: contact[
-                                                                        'phone'],
-                                                                    status:
-                                                                        'Pending',
-                                                                  ))
-                                                              .toList());
-
-                                                      await _handleRefresh();
-
-                                                      if (mounted) {
-                                                        showSnackbar(
-                                                          context,
-                                                          'Imported ${contacts.length} contacts',
-                                                        );
-                                                      }
-                                                    } catch (e) {
-                                                      if (mounted) {
-                                                        showSnackbar(
-                                                          context,
-                                                          'Failed to import CSV: $e',
-                                                        );
-                                                      }
-                                                    } finally {
-                                                      if (mounted) {
-                                                        setState(() {
-                                                          _isImporting = false;
-                                                        });
-                                                      }
-                                                    }
-                                                  },
-                                                  child: wrapWithModel(
-                                                    model: _model.buttonModel1,
-                                                    updateCallback: () =>
-                                                        safeSetState(() {}),
-                                                    child: ButtonWidget(
-                                                      icon: Icon(
-                                                        Icons
-                                                            .upload_file_rounded,
-                                                        color:
-                                                            FlutterFlowTheme.of(
-                                                                    context)
-                                                                .primaryText,
-                                                        size: 24.0,
-                                                      ),
-                                                      iconPresent: true,
-                                                      iconEndPresent: false,
-                                                      content: _isImporting
-                                                          ? 'Importing...'
-                                                          : 'Import CSV',
-                                                      variant: 'primary',
-                                                      size: 'medium',
-                                                      fullWidth: false,
-                                                      loading: _isImporting,
-                                                      disabled: _isImporting,
-                                                    ),
+                                                    ],
                                                   ),
-                                                ),
-                                              ),
-                                              Expanded(
-                                                flex: 1,
-                                                child: InkWell(
-                                                  splashColor:
-                                                      Colors.transparent,
-                                                  focusColor:
-                                                      Colors.transparent,
-                                                  hoverColor:
-                                                      Colors.transparent,
-                                                  highlightColor:
-                                                      Colors.transparent,
-                                                  onTap: () async {
-                                                    await context.pushNamed(
-                                                        CreateBroadcastWidget
-                                                            .routeName);
-                                                    await _handleRefresh();
-                                                  },
-                                                  child: wrapWithModel(
-                                                    model: _model.buttonModel2,
-                                                    updateCallback: () =>
-                                                        safeSetState(() {}),
-                                                    child: ButtonWidget(
-                                                      icon: Icon(
-                                                        Icons.add_rounded,
-                                                        color:
-                                                            FlutterFlowTheme.of(
-                                                                    context)
-                                                                .primaryText,
-                                                        size: 24.0,
-                                                      ),
-                                                      iconPresent: true,
-                                                      iconEndPresent: false,
-                                                      content:
-                                                          'Create Manually',
-                                                      variant: 'outline',
-                                                      size: 'large',
-                                                      fullWidth: false,
-                                                      loading: false,
-                                                      disabled: false,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ].divide(SizedBox(width: 16.0)),
-                                          ),
-                                          Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.start,
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.stretch,
-                                            children: [
-                                              Row(
-                                                mainAxisSize: MainAxisSize.max,
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.center,
-                                                children: [
-                                                  Text(
-                                                    'Recent Lists',
-                                                    style: FlutterFlowTheme.of(
-                                                            context)
-                                                        .titleMedium
-                                                        .override(
-                                                          font: GoogleFonts
-                                                              .plusJakartaSans(
-                                                            fontWeight:
-                                                                FontWeight.bold,
-                                                            fontStyle:
-                                                                FlutterFlowTheme.of(
-                                                                        context)
-                                                                    .titleMedium
-                                                                    .fontStyle,
-                                                          ),
-                                                          letterSpacing: 0.0,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          fontStyle:
-                                                              FlutterFlowTheme.of(
-                                                                      context)
-                                                                  .titleMedium
-                                                                  .fontStyle,
-                                                          lineHeight: 1.4,
-                                                        ),
-                                                  ),
-                                                  wrapWithModel(
-                                                    model: _model.buttonModel3,
-                                                    updateCallback: () =>
-                                                        safeSetState(() {}),
-                                                    child: ButtonWidget(
-                                                      iconPresent: false,
-                                                      iconEndPresent: false,
-                                                      content: 'View All',
-                                                      variant: 'ghost',
-                                                      size: 'small',
-                                                      fullWidth: false,
-                                                      loading: false,
-                                                      disabled: false,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                              Builder(
-                                                  builder: (context) {
-                                                    final listWithIndex = columnPaddingCampaignsRecordList.asMap().entries.toList();
-                                                    listWithIndex.sort((entryA, entryB) {
-                                                      final a = entryA.value;
-                                                      final b = entryB.value;
-                                                      final dateA = _parseCampaignDate(a.createdAt);
-                                                      final dateB = _parseCampaignDate(b.createdAt);
-                                                      if (dateA != null && dateB != null) {
-                                                        final cmp = dateB.compareTo(dateA);
-                                                        if (cmp != 0) return cmp;
-                                                      } else if (dateA != null) {
-                                                        return -1;
-                                                      } else if (dateB != null) {
-                                                        return 1;
-                                                      }
-                                                      return entryB.key.compareTo(entryA.key);
-                                                    });
-                                                    final sortedCampaigns = listWithIndex.map((e) => e.value).toList();
-                                                    final displayCampaigns = functions.filteredCampaigns(sortedCampaigns, _searchQuery);
-
-                                                    if (displayCampaigns.isEmpty) {
-                                                      return Padding(
+                                                    if (displayCampaigns.isEmpty)
+                                                      Padding(
                                                         padding: const EdgeInsets.all(32.0),
                                                         child: Column(
                                                           mainAxisSize: MainAxisSize.min,
@@ -893,7 +509,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                             Text(
                                                               _searchQuery.isNotEmpty
                                                                   ? 'Try searching with a different keyword'
-                                                                  : 'Import a CSV to start your first campaign',
+                                                                  : 'Create a campaign to get started',
                                                               style: FlutterFlowTheme.of(context).bodySmall.override(
                                                                 font: GoogleFonts.inter(),
                                                                 color: FlutterFlowTheme.of(context).secondaryText,
@@ -901,18 +517,17 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                             ),
                                                           ],
                                                         ),
-                                                      );
-                                                    }
-
-                                                    return ListView.builder(
+                                                      )
+                                                    else
+                                                      ListView.builder(
                                                       padding: EdgeInsets.zero,
                                                       primary: false,
                                                       shrinkWrap: true,
                                                       physics: const NeverScrollableScrollPhysics(),
                                                       scrollDirection: Axis.vertical,
-                                                      itemCount: displayCampaigns.length,
+                                                      itemCount: campaignsToShow.length,
                                                       itemBuilder: (context, itemIndex) {
-                                                        final itemItem = displayCampaigns[itemIndex];
+                                                        final itemItem = campaignsToShow[itemIndex];
                                                         return Dismissible(
                                                           key: Key('dismiss_${itemItem.id}'),
                                                           direction: DismissDirection.endToStart,
@@ -983,7 +598,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                               await _handleRefresh();
                                                             },
                                                             child: BroadcastCardWidget(
-                                                              key: Key('Key189_${itemIndex}_of_${displayCampaigns.length}'),
+                                                              key: Key('Key189_${itemIndex}_of_${campaignsToShow.length}'),
                                                               tapAction: 'navigate("broadcast_details", {campaign_id: "${itemItem.id}"})',
                                                               name: itemItem.name,
                                                               count: itemItem.contactCount.toString(),
@@ -1000,10 +615,10 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                                           ),
                                                         );
                                                       },
-                                                    );
-                                                  },
-                                                ),
-                                            ].divide(SizedBox(height: 16.0)),
+                                                    ),
+                                                ].divide(SizedBox(height: 16.0)),
+                                              );
+                                            },
                                           ),
                                         ].divide(SizedBox(height: 24.0)),
                                       ),
