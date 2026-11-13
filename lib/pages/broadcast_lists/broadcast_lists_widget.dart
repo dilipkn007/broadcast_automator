@@ -10,6 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'broadcast_lists_model.dart';
+import '/components/permission_health_card/permission_health_card_widget.dart';
+import '/components/permission_wizard/permission_wizard_dialog.dart';
+import '/services/native_bridge.dart';
 export 'broadcast_lists_model.dart';
 
 class BroadcastListsWidget extends StatefulWidget {
@@ -22,7 +25,8 @@ class BroadcastListsWidget extends StatefulWidget {
   State<BroadcastListsWidget> createState() => _BroadcastListsWidgetState();
 }
 
-class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
+class _BroadcastListsWidgetState extends State<BroadcastListsWidget>
+    with WidgetsBindingObserver {
   late BroadcastListsModel _model;
 
   final scaffoldKey = GlobalKey<ScaffoldState>();
@@ -33,18 +37,65 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
   bool _showAllLists = false;
   Key _streamKey = UniqueKey();
 
+  bool _isAccessibilityEnabled = false;
+  bool _canDrawOverlays = false;
+  bool _hasCheckedPermissions = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _model = createModel(context, () => BroadcastListsModel());
     LocalDatabase.instance.cleanupOrphanedCampaigns();
+    _checkPermissions();
+    _checkFirstLaunchWizard();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _model.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissions();
+    }
+  }
+
+  Future<void> _checkPermissions() async {
+    try {
+      final accessibility = await NativeBridge.isAccessibilityEnabled();
+      final overlay = await NativeBridge.canDrawOverlays();
+      if (!mounted) return;
+      setState(() {
+        _isAccessibilityEnabled = accessibility;
+        _canDrawOverlays = overlay;
+        _hasCheckedPermissions = true;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _checkFirstLaunchWizard() async {
+    try {
+      final hasSeen = await PermissionWizardDialog.hasSeenWizard();
+      if (!hasSeen) {
+        final accessibility = await NativeBridge.isAccessibilityEnabled();
+        final overlay = await NativeBridge.canDrawOverlays();
+        if (!accessibility || !overlay) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            PermissionWizardDialog.show(
+              context,
+              onPermissionsChanged: _checkPermissions,
+            );
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   DateTime? _parseCampaignDate(String raw) {
@@ -79,6 +130,7 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
     try {
       await LocalDatabase.instance.cleanupOrphanedCampaigns();
       await queryCampaignsRecordOnce();
+      await _checkPermissions();
     } catch (_) {}
     if (!mounted) return;
     setState(() {
@@ -349,6 +401,27 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget> {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.stretch,
                                         children: [
+                                          if (_hasCheckedPermissions)
+                                            PermissionHealthCardWidget(
+                                              isAccessibilityEnabled:
+                                                  _isAccessibilityEnabled,
+                                              canDrawOverlays: _canDrawOverlays,
+                                              onEnableAccessibility: () async {
+                                                await NativeBridge
+                                                    .openAccessibilitySettings();
+                                              },
+                                              onAllowOverlay: () async {
+                                                await NativeBridge
+                                                    .openOverlaySettings();
+                                              },
+                                              onOpenGuide: () {
+                                                PermissionWizardDialog.show(
+                                                  context,
+                                                  onPermissionsChanged:
+                                                      _checkPermissions,
+                                                );
+                                              },
+                                            ),
                                           InkWell(
                                             splashColor: Colors.transparent,
                                             focusColor: Colors.transparent,

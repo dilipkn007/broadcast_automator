@@ -1,5 +1,7 @@
 import '/backend/backend.dart';
 import '/components/create_campaign_from_history_sheet.dart';
+import '/components/phone_contacts_picker_sheet.dart';
+import '/components/quick_paste_sheet.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/index.dart';
@@ -138,6 +140,20 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         _nameController.text = baseName;
       }
 
+      _appendContacts(contacts, fileName);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImportingCsv = false;
+        });
+      }
+    }
+  }
+
+  void _appendContacts(List<Map<String, String>> newContacts, String sourceDescription) {
+    if (newContacts.isEmpty) return;
+
+    setState(() {
       final isSingleEmptyRow = _rows.length == 1 &&
           _rows[0].nameController.text.trim().isEmpty &&
           _rows[0].phoneController.text.trim().isEmpty;
@@ -149,7 +165,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         _rows.clear();
       }
 
-      for (final c in contacts) {
+      for (final c in newContacts) {
         final row = _ContactRow();
         row.nameController.text = c['name'] ?? '';
         row.phoneController.text = c['phone'] ?? '';
@@ -157,20 +173,29 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
       }
 
       _showAllContacts = _rows.length <= 50;
+    });
 
-      if (mounted) {
-        showSnackbar(
-          context,
-          'Imported ${contacts.length} contacts from "$fileName"',
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isImportingCsv = false;
-        });
-      }
+    if (mounted) {
+      showSnackbar(context, 'Added ${newContacts.length} contacts from $sourceDescription');
     }
+  }
+
+  void _openQuickPaste() {
+    showQuickPasteSheet(
+      context,
+      onContactsPasted: (contacts) {
+        _appendContacts(contacts, 'Quick Paste');
+      },
+    );
+  }
+
+  void _openPhoneContacts() {
+    showPhoneContactsPickerSheet(
+      context,
+      onContactsSelected: (contacts) {
+        _appendContacts(contacts, 'Phone Contacts');
+      },
+    );
   }
 
   void _clearContacts() {
@@ -420,6 +445,64 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
+                    OutlinedButton.icon(
+                      onPressed: _openQuickPaste,
+                      icon: Icon(
+                        Icons.content_paste_go_rounded,
+                        size: 16.0,
+                        color: FlutterFlowTheme.of(context).primary,
+                      ),
+                      label: Text(
+                        'Quick Paste',
+                        style: GoogleFonts.inter(
+                          color: FlutterFlowTheme.of(context).primary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: FlutterFlowTheme.of(context)
+                              .primary
+                              .withOpacity(0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 8.0),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                    OutlinedButton.icon(
+                      onPressed: _openPhoneContacts,
+                      icon: Icon(
+                        Icons.contacts_rounded,
+                        size: 16.0,
+                        color: FlutterFlowTheme.of(context).primary,
+                      ),
+                      label: Text(
+                        'Phone Contacts',
+                        style: GoogleFonts.inter(
+                          color: FlutterFlowTheme.of(context).primary,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(
+                          color: FlutterFlowTheme.of(context)
+                              .primary
+                              .withOpacity(0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8.0),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 8.0),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
                     OutlinedButton.icon(
                       onPressed: _isImportingCsv ? null : _importFromCsv,
                       icon: _isImportingCsv

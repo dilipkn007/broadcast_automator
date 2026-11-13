@@ -77,6 +77,43 @@ class NativeBridge {
     return _toMap(result);
   }
 
+  /// Checks whether READ_CONTACTS permission has been granted.
+  static Future<bool> hasContactsPermission() async {
+    final result = await _channel.invokeMethod('hasContactsPermission');
+    return result == true;
+  }
+
+  /// Retrieves all contacts from the Android phonebook that have phone numbers.
+  /// Automatically prompts for permission if not yet granted.
+  /// Throws [PlatformException] with code `permission_denied` if denied by user.
+  static Future<List<Map<String, String>>> getPhoneContacts() async {
+    final result = await _channel.invokeMethod('getDeviceContacts');
+    if (result is List) {
+      return result.map((item) {
+        if (item is Map) {
+          return {
+            'name': item['name']?.toString() ?? '',
+            'phone': item['phone']?.toString() ?? '',
+          };
+        }
+        return <String, String>{};
+      }).where((c) => (c['phone'] ?? '').isNotEmpty).toList();
+    }
+    return [];
+  }
+
+  /// Opens the system contact picker to select a single contact without requiring permissions.
+  static Future<Map<String, String>?> pickSingleContact() async {
+    final result = await _channel.invokeMethod('pickSingleContact');
+    if (result is Map) {
+      return {
+        'name': result['name']?.toString() ?? '',
+        'phone': result['phone']?.toString() ?? '',
+      };
+    }
+    return null;
+  }
+
   /// Persists the automation job (contacts + message + settings + attachments) natively so
   /// the accessibility service can run it.
   static Future<void> saveJob({
@@ -216,3 +253,102 @@ List<Map<String, String>> csvRowsToContacts(List<List<String>> rows) {
 }
 
 String encodeJson(Object? value) => json.encode(value);
+
+/// Parses raw pasted text (e.g. from WhatsApp, Notes, or Sheets) into contacts with name & phone.
+/// Supports formats:
+/// - Plain numbers: "9876543210" or "+91 98765 43210"
+/// - "Name - Number": "John - +91 9876543210"
+/// - "Name: Number": "Alice: 9876543211"
+/// - "Name, Number": "Bob, 9876543212"
+/// - "Number - Name": "9876543210 - David"
+/// - Numbered lists: "1. Rahul: 9876543210"
+/// - Tab or comma separated: "Jane Smith\t9876543210" or comma-separated lists of numbers
+List<Map<String, String>> parseRawTextContacts(String rawText) {
+  if (rawText.trim().isEmpty) return const [];
+
+  final contacts = <Map<String, String>>[];
+  final seenPhones = <String>{};
+
+  final lines = rawText.split(RegExp(r'\r?\n'));
+  final phonePattern = RegExp(r'(?:\+?\d[\d\s\-\(\)\.]{5,}\d)');
+
+  for (final rawLine in lines) {
+    final line = rawLine.trim();
+    if (line.isEmpty) continue;
+
+    // Check for TSV or multiple separated segments
+    if (line.contains('\t')) {
+      final parts = line.split('\t').map((p) => p.trim()).toList();
+      _extractFromParts(parts, contacts, seenPhones);
+      continue;
+    }
+
+    final allMatches = phonePattern.allMatches(line).toList();
+
+    if (allMatches.length > 1 && (line.contains(',') || line.contains(';'))) {
+      final commaParts = line.split(RegExp(r'[,;]')).map((p) => p.trim()).toList();
+      final allPhones = commaParts.every((p) {
+        final digits = p.replaceAll(RegExp(r'[^\d]'), '');
+        return digits.length >= 7 && digits.length <= 16;
+      });
+
+      if (allPhones) {
+        for (final p in commaParts) {
+          _addContact('', p, contacts, seenPhones);
+        }
+      } else {
+        _extractFromParts(commaParts, contacts, seenPhones);
+      }
+    } else if (allMatches.isNotEmpty) {
+      final match = allMatches.first;
+      final phoneString = match.group(0)!;
+      final cleanDigits = phoneString.replaceAll(RegExp(r'[^\d]'), '');
+
+      if (cleanDigits.length >= 7 && cleanDigits.length <= 16) {
+        var name = line.replaceFirst(phoneString, '').trim();
+        name = name
+            .replaceAll(RegExp(r'^[0-9]+[\.\)\-]\s*'), '')
+            .replaceAll(RegExp(r'^[\s\-:,|~<>\(\)"]+|[\s\-:,|~<>\(\)"]+$'), '')
+            .trim();
+
+        _addContact(name, phoneString, contacts, seenPhones);
+      }
+    }
+  }
+
+  return contacts;
+}
+
+void _addContact(String name, String rawPhone, List<Map<String, String>> contacts, Set<String> seenPhones) {
+  final trimmed = rawPhone.trim();
+  final hasPlus = trimmed.startsWith('+');
+  final digits = trimmed.replaceAll(RegExp(r'[^\d]'), '');
+  if (digits.length < 7 || digits.length > 16) return;
+
+  final cleanPhone = hasPlus ? '+$digits' : digits;
+  if (seenPhones.add(cleanPhone)) {
+    contacts.add({
+      'name': name.trim(),
+      'phone': cleanPhone,
+    });
+  }
+}
+
+void _extractFromParts(List<String> parts, List<Map<String, String>> contacts, Set<String> seenPhones) {
+  if (parts.isEmpty) return;
+  var name = '';
+  var phone = '';
+
+  for (final part in parts) {
+    final digits = part.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.length >= 7 && digits.length <= 16 && phone.isEmpty) {
+      phone = part;
+    } else if (name.isEmpty && digits.length < 7) {
+      name = part.replaceAll(RegExp(r'^"+|"+$'), '');
+    }
+  }
+
+  if (phone.isNotEmpty) {
+    _addContact(name, phone, contacts, seenPhones);
+  }
+}

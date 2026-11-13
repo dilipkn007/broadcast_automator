@@ -1,12 +1,17 @@
 package com.makhanchor.broadcastautomator
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.util.Log
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -20,9 +25,13 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL = "com.makhanchor.broadcastautomator/native"
         private const val TAG = "BroadcastAutomator"
         private const val REQ_PICK_FILE = 4201
+        private const val REQ_PICK_CONTACT = 4202
+        private const val REQ_CONTACTS_PERMISSION = 4203
     }
 
     private var pendingPicker: ((Uri?) -> Unit)? = null
+    private var pendingContactPicker: ((Uri?) -> Unit)? = null
+    private var pendingContactsChannelResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -126,6 +135,65 @@ class MainActivity : FlutterActivity() {
                             } catch (e: Exception) {
                                 Log.e(TAG, "pickAttachment failed", e)
                                 result.error("read_failed", e.message, null)
+                            }
+                        }
+                    }
+                    "hasContactsPermission" -> {
+                        val granted = ContextCompat.checkSelfPermission(
+                            this, Manifest.permission.READ_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        result.success(granted)
+                    }
+                    "getDeviceContacts" -> {
+                        val granted = ContextCompat.checkSelfPermission(
+                            this, Manifest.permission.READ_CONTACTS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) {
+                            result.success(fetchAllContacts())
+                        } else {
+                            pendingContactsChannelResult = result
+                            ActivityCompat.requestPermissions(
+                                this,
+                                arrayOf(Manifest.permission.READ_CONTACTS),
+                                REQ_CONTACTS_PERMISSION
+                            )
+                        }
+                    }
+                    "pickSingleContact" -> {
+                        pickContact { uri ->
+                            if (uri == null) {
+                                result.error("cancelled", "Contact selection cancelled", null)
+                            } else {
+                                try {
+                                    var name = ""
+                                    var phone = ""
+                                    contentResolver.query(
+                                        uri,
+                                        arrayOf(
+                                            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                                            ContactsContract.CommonDataKinds.Phone.NUMBER
+                                        ),
+                                        null,
+                                        null,
+                                        null
+                                    )?.use { cursor ->
+                                        if (cursor.moveToFirst()) {
+                                            val nIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                                            val pIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                            if (nIdx >= 0) name = cursor.getString(nIdx) ?: ""
+                                            if (pIdx >= 0) phone = cursor.getString(pIdx) ?: ""
+                                        }
+                                    }
+                                    val cleanPhone = phone.replace(Regex("[^0-9+]"), "")
+                                    if (cleanPhone.isEmpty()) {
+                                        result.error("no_phone", "Selected contact has no phone number", null)
+                                    } else {
+                                        result.success(mapOf("name" to name.trim(), "phone" to cleanPhone))
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "pickSingleContact failed", e)
+                                    result.error("read_failed", e.message, null)
+                                }
                             }
                         }
                     }
@@ -261,12 +329,80 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun pickContact(onResult: (Uri?) -> Unit) {
+        pendingContactPicker = onResult
+        val intent = Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+        try {
+            startActivityForResult(intent, REQ_PICK_CONTACT)
+        } catch (e: Exception) {
+            pendingContactPicker = null
+            onResult(null)
+            Log.e(TAG, "pickContact launch failed", e)
+        }
+    }
+
+    private fun fetchAllContacts(): List<Map<String, String>> {
+        val list = mutableListOf<Map<String, String>>()
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
+        )
+        try {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                projection,
+                null,
+                null,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " COLLATE NOCASE ASC",
+            )?.use { cursor ->
+                val nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numberIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val seen = HashSet<String>()
+                while (cursor.moveToNext()) {
+                    val name = if (nameIdx >= 0) cursor.getString(nameIdx) ?: "" else ""
+                    val number = if (numberIdx >= 0) cursor.getString(numberIdx) ?: "" else ""
+                    val cleanPhone = number.replace(Regex("[^0-9+]"), "")
+                    if (cleanPhone.isNotEmpty()) {
+                        val key = "$name|$cleanPhone"
+                        if (seen.add(key)) {
+                            list.add(mapOf("name" to name.trim(), "phone" to cleanPhone))
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchAllContacts error", e)
+        }
+        return list
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_PICK_FILE) {
             val callback = pendingPicker
             pendingPicker = null
             callback?.invoke(if (resultCode == RESULT_OK) data?.data else null)
+        } else if (requestCode == REQ_PICK_CONTACT) {
+            val callback = pendingContactPicker
+            pendingContactPicker = null
+            callback?.invoke(if (resultCode == RESULT_OK) data?.data else null)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_CONTACTS_PERMISSION) {
+            val res = pendingContactsChannelResult
+            pendingContactsChannelResult = null
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                res?.success(fetchAllContacts())
+            } else {
+                res?.error("permission_denied", "Contacts permission denied by user", null)
+            }
         }
     }
 
