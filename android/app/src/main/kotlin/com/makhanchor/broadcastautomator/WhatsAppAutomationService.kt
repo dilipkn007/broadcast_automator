@@ -38,7 +38,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         private const val POLL_MS = 400L
         private const val SETTLE_MS = 1200L
         private const val CONFIRM_MS = 1600L
-        private const val SEND_TIMEOUT_MS = 20000L
+        private const val SEND_TIMEOUT_MS = 12000L
         private const val DELAY_BETWEEN_CONTACTS_MS = 800L
 
         private val SEND_LABELS = listOf(
@@ -49,6 +49,8 @@ class WhatsAppAutomationService : AccessibilityService() {
             "invia",
             "kirim",
             "发送",
+            "bhejein",
+            "bhejo",
         )
 
         private var serviceInstance: WhatsAppAutomationService? = null
@@ -314,16 +316,13 @@ class WhatsAppAutomationService : AccessibilityService() {
                 }
             }
             else -> {
-                val link = "https://wa.me/$phone?text=" + URLEncoder.encode(message, "UTF-8")
+                val encoded = Uri.encode(message)
+                val link = "https://api.whatsapp.com/send?phone=$phone&text=$encoded"
                 Intent(Intent.ACTION_VIEW, Uri.parse(link))
             }
         }
         intent.setPackage(pkg)
-        intent.addFlags(
-            Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP,
-        )
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try {
             startActivity(intent)
         } catch (_: Exception) {
@@ -365,6 +364,14 @@ class WhatsAppAutomationService : AccessibilityService() {
             )
             return
         }
+
+        // 1. Check for modal error dialogs (e.g. "isn't on WhatsApp", "invalid number")
+        if (detectAndDismissWhatsAppDialog(root)) {
+            handleInvalid(contact)
+            return
+        }
+
+        // 2. Populate input / caption if inside chat
         val message = resolveMessage(j.message, contact.name)
         val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
         if (validAttachments.size > 1 && message.isNotEmpty()) {
@@ -372,6 +379,8 @@ class WhatsAppAutomationService : AccessibilityService() {
         } else if (validAttachments.isEmpty() && message.isNotEmpty()) {
             populateChatInputIfEmpty(root, message)
         }
+
+        // 3. Look for send button
         val send = findSendButton(root)
         if (send != null) {
             val preSendDelay = j.preSendDelaySeconds
@@ -380,7 +389,16 @@ class WhatsAppAutomationService : AccessibilityService() {
             } else {
                 executeSendClick(j, contact, attempt)
             }
-        } else if (elapsed >= SEND_TIMEOUT_MS) {
+            return
+        }
+
+        // 4. Recovery: If after 2.4s or 4.8s we are still not inside a chat (e.g. stuck on HomeActivity)
+        if ((elapsed == 2400L || elapsed == 4800L) && !isInsideChat(root)) {
+            dismissSearchModeIfActive(root)
+            relaunchChatIntent(j, contact)
+        }
+
+        if (elapsed >= SEND_TIMEOUT_MS) {
             retryOrFail(j, contact, attempt)
         } else {
             mainHandler.postDelayed(
@@ -624,11 +642,130 @@ class WhatsAppAutomationService : AccessibilityService() {
     }
 
     private fun normalizePhone(raw: String): String {
-        var digits = raw.filter { it.isDigit() }
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+
+        var digits = trimmed.filter { it.isDigit() }
         if (digits.isEmpty()) return ""
-        if (digits.startsWith("0")) digits = digits.drop(1)
-        if (digits.length == 10) digits = "91$digits"
+
+        // Handle international dialing prefix '00' (e.g. 0091... -> 91...)
+        while (digits.startsWith("00")) {
+            digits = digits.drop(2)
+        }
+
+        val hasPlus = trimmed.startsWith("+")
+
+        if (hasPlus) {
+            // Already has explicit country code.
+            // Handle cases like +91 09876543210 -> strip the trunk '0' after 91
+            if (digits.startsWith("910") && digits.length == 13) {
+                digits = "91" + digits.substring(3)
+            }
+        } else {
+            // Local trunk '0' with 10 digits (e.g., 09876543210 -> 9876543210)
+            if (digits.startsWith("0") && digits.length == 11) {
+                digits = digits.drop(1)
+            }
+            // Standard 10-digit Indian mobile number -> prepend default country code 91
+            if (digits.length == 10) {
+                digits = "91$digits"
+            } else if (digits.startsWith("910") && digits.length == 13) {
+                digits = "91" + digits.substring(3)
+            }
+        }
+
+        // Valid phone numbers with country code must be at least 10 digits
+        if (digits.length < 10) {
+            return ""
+        }
+
         return digits
+    }
+
+    private fun isInsideChat(root: AccessibilityNodeInfo): Boolean {
+        return findChatInput(root) != null || findSendButton(root) != null || findCaptionInput(root) != null
+    }
+
+    private fun dismissSearchModeIfActive(root: AccessibilityNodeInfo) {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val vid = node.viewIdResourceName?.lowercase() ?: ""
+            if (vid.contains("search_back") || vid.contains("search_close") || vid.contains("clear_search")) {
+                performClickOnNearestClickable(node)
+                return
+            }
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+    }
+
+    private fun relaunchChatIntent(j: WaJob, contact: WaContact) {
+        try {
+            val pkg = whatsAppPackage() ?: return
+            val phone = normalizePhone(contact.phone)
+            if (phone.isEmpty()) return
+            val message = resolveMessage(j.message, contact.name)
+            val encoded = Uri.encode(message)
+            val link = "https://api.whatsapp.com/send?phone=$phone&text=$encoded"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).apply {
+                setPackage(pkg)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun detectAndDismissWhatsAppDialog(root: AccessibilityNodeInfo): Boolean {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        var dialogDetected = false
+        var okButton: AccessibilityNodeInfo? = null
+
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val vid = node.viewIdResourceName?.lowercase() ?: ""
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+            if (text.contains("isn't on whatsapp") ||
+                text.contains("is not on whatsapp") ||
+                text.contains("not on whatsapp") ||
+                text.contains("shared via url is invalid") ||
+                text.contains("url is invalid") ||
+                text.contains("couldn't find contact") ||
+                text.contains("não está no whatsapp") ||
+                text.contains("não é cadastrado") ||
+                text.contains("no está en whatsapp") ||
+                text.contains("pas sur whatsapp") ||
+                text.contains("nicht auf whatsapp")
+            ) {
+                dialogDetected = true
+            }
+
+            if (vid.endsWith("/button1") || vid.endsWith("/button2") || vid.contains("id/ok") || vid.endsWith("/close")) {
+                okButton = node
+            } else if (text == "ok" || text == "dismiss" || text == "cancel" || desc == "ok") {
+                okButton = node
+            }
+
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+
+        if (dialogDetected) {
+            if (okButton != null) {
+                performClickOnNearestClickable(okButton)
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            return true
+        }
+        return false
     }
 
     private fun populateCaptionIfPresent(root: AccessibilityNodeInfo, message: String): Boolean {
@@ -650,7 +787,6 @@ class WhatsAppAutomationService : AccessibilityService() {
     private fun findCaptionInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
-        var fallback: AccessibilityNodeInfo? = null
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             val vid = node.viewIdResourceName?.lowercase() ?: ""
@@ -658,21 +794,18 @@ class WhatsAppAutomationService : AccessibilityService() {
             val hint = node.hintText?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
 
-            if (cls.contains("EditText") || node.isEditable) {
-                if (vid.contains("caption") || vid.contains("entry") ||
-                    hint.contains("caption") || hint.contains("message") ||
-                    desc.contains("caption") || desc.contains("message")) {
-                    return node
-                }
-                if (fallback == null) {
-                    fallback = node
+            if (!vid.contains("search") && !hint.contains("search") && !desc.contains("search")) {
+                if (cls.contains("EditText") || node.isEditable) {
+                    if (vid.contains("caption") || hint.contains("caption") || desc.contains("caption")) {
+                        return node
+                    }
                 }
             }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
         }
-        return fallback
+        return null
     }
 
     private fun populateChatInputIfEmpty(root: AccessibilityNodeInfo, message: String): Boolean {
@@ -694,24 +827,27 @@ class WhatsAppAutomationService : AccessibilityService() {
     private fun findChatInput(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
-        var fallback: AccessibilityNodeInfo? = null
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             val vid = node.viewIdResourceName?.lowercase() ?: ""
             val cls = node.className?.toString() ?: ""
-            if (cls.contains("EditText") || node.isEditable) {
-                if (vid.contains("entry") || vid.contains("message")) {
-                    return node
-                }
-                if (fallback == null) {
-                    fallback = node
+            val hint = node.hintText?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+
+            // Do NOT match search bars or filters!
+            if (!vid.contains("search") && !vid.contains("filter") &&
+                !hint.contains("search") && !desc.contains("search")) {
+                if (cls.contains("EditText") || node.isEditable) {
+                    if (vid.endsWith("/entry") || vid.contains("id/entry") || vid.contains("conversation_text_entry")) {
+                        return node
+                    }
                 }
             }
             for (i in 0 until node.childCount) {
                 node.getChild(i)?.let { queue.add(it) }
             }
         }
-        return fallback
+        return null
     }
 
     private fun findSendButton(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
@@ -720,15 +856,26 @@ class WhatsAppAutomationService : AccessibilityService() {
         var fallback: AccessibilityNodeInfo? = null
         while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
-            val vid = node.viewIdResourceName
+            val vid = node.viewIdResourceName?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            if (vid != null && (vid.endsWith("/send") || vid.endsWith("/send_button") || vid.contains("id/send"))) {
+
+            // Exclude voice message / microphone button
+            val isVoice = desc.contains("voice") || desc.contains("mic") ||
+                desc.contains("audio") || desc.contains("record")
+            if (isVoice) {
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
+                continue
+            }
+
+            if (vid.endsWith("/send") || vid.endsWith("/send_button") || vid.contains("id/send")) {
                 return node
             }
-            if (desc.isNotEmpty() && SEND_LABELS.any { desc.contains(it) }) {
+            if (desc.isNotEmpty() && SEND_LABELS.any { desc == it || desc.contains(it) }) {
                 return node
             }
-            if (vid != null && vid.contains("send") && fallback == null) {
+            if (vid.contains("send") && fallback == null) {
                 fallback = node
             }
             for (i in 0 until node.childCount) {
