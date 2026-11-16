@@ -28,19 +28,30 @@ class CampaignCompletedWidget extends StatefulWidget {
       _CampaignCompletedWidgetState();
 }
 
-class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
+class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget>
+    with WidgetsBindingObserver {
   late CampaignCompletedModel _model;
   String _resolvedCampaignId = '';
   Map<String, dynamic>? _nativeReport;
+  CampaignsRecord? _campaignRecord;
+  List<Map<String, String>> _campaignAttachments = [];
 
   final scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _model = createModel(context, () => CampaignCompletedModel());
     _resolvedCampaignId = widget.campaignId?.trim() ?? '';
     _loadReportData();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadReportData();
+    }
   }
 
   Future<void> _loadReportData() async {
@@ -56,13 +67,176 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
           }
         }
       });
+      if (_resolvedCampaignId.isNotEmpty) {
+        final list = await queryCampaignsRecordOnce(
+          queryBuilder: (q) => q.where('id', isEqualTo: _resolvedCampaignId),
+          singleRecord: true,
+        );
+        if (list.isNotEmpty && mounted) {
+          setState(() {
+            _campaignRecord = list.first;
+          });
+        }
+        final attList = await queryAttachmentsRecordOnce(
+          queryBuilder: (q) =>
+              q.where('campaign_id', isEqualTo: _resolvedCampaignId),
+        );
+        if (mounted) {
+          setState(() {
+            _campaignAttachments = attList.map((a) {
+              final path = a.sourceUrl;
+              return <String, String>{
+                'id': a.id,
+                'path': path,
+                'mimeType': a.type,
+                'name': path.split('/').last,
+              };
+            }).toList();
+          });
+        }
+      }
     } catch (_) {}
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _model.dispose();
     super.dispose();
+  }
+
+  Future<void> _retryFailedBroadcast(
+      List<Map<String, dynamic>> failedContacts) async {
+    if (failedContacts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No failed contacts to retry.')),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.replay_rounded,
+                color: FlutterFlowTheme.of(context).error),
+            const SizedBox(width: 8.0),
+            Text(
+              'Retry Failed Messages',
+              style: GoogleFonts.plusJakartaSans(
+                fontWeight: FontWeight.bold,
+                fontSize: 18.0,
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Do you want to retry sending messages to ${failedContacts.length} failed contact(s)?',
+          style: GoogleFonts.inter(fontSize: 14.0),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.inter(
+                color: FlutterFlowTheme.of(context).secondaryText,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: FlutterFlowTheme.of(context).primary,
+              foregroundColor: Colors.white,
+            ),
+            child: Text(
+              'Retry Now',
+              style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // 1. Reset failed contacts in DB to 'Pending'
+    for (final fc in failedContacts) {
+      final id = fc['id']?.toString() ?? '';
+      if (id.isNotEmpty) {
+        await localDb.update('contacts', {'status': 'Pending'},
+            where: 'id = ?', whereArgs: [id]);
+      }
+    }
+    localDb.notifyTableChanged('contacts');
+
+    // 2. Prepare parameters
+    final campaign = _campaignRecord;
+    final message = campaign?.messageBody ?? '';
+    final campaignName =
+        campaign?.name.isNotEmpty == true ? campaign!.name : 'Broadcast Retry';
+    final delaySeconds = campaign?.delaySeconds ?? 6;
+    final randomizeDelay = campaign?.randomizeDelay ?? true;
+    final skipInvalid = campaign?.skipInvalid ?? true;
+    final autoRetry = campaign?.autoRetry ?? false;
+
+    await NativeBridge.saveJob(
+      campaignId: _resolvedCampaignId,
+      campaignName: campaignName,
+      message: message,
+      delaySeconds: delaySeconds,
+      preSendDelaySeconds: 2,
+      randomizeDelay: randomizeDelay,
+      autoRetry: autoRetry,
+      skipInvalid: skipInvalid,
+      contacts: failedContacts.map((c) => {
+            'id': (c['id'] ?? '').toString(),
+            'name': (c['name'] ?? '').toString(),
+            'phone': (c['phone'] ?? '').toString(),
+            if (c['extra_fields'] != null)
+              'extraFields': c['extra_fields']
+            else if (c['extraFields'] != null)
+              'extraFields': c['extraFields'],
+          }).toList(),
+      attachments: _campaignAttachments,
+      attachmentPath: _campaignAttachments.isNotEmpty
+          ? _campaignAttachments.first['path']
+          : null,
+      attachmentMime: _campaignAttachments.isNotEmpty
+          ? _campaignAttachments.first['mimeType']
+          : null,
+    );
+
+    // 3. Start broadcast
+    final started = await NativeBridge.startBroadcast(_resolvedCampaignId);
+    if (started['started'] != true) {
+      if (!mounted) return;
+      if (started['accessibilityEnabled'] == false) {
+        await NativeBridge.openAccessibilitySettings();
+        showSnackbar(context,
+            'Enable the "WhatsApp Broadcast Automator" accessibility service, then retry.');
+      } else if (started['overlayPermission'] == false) {
+        await NativeBridge.openOverlaySettings();
+        showSnackbar(context,
+            'Allow "Display over other apps" so the progress overlay can appear on WhatsApp.');
+      } else {
+        showSnackbar(context, 'Could not start retry: ${started['error']}');
+      }
+      return;
+    }
+
+    if (!mounted) return;
+    context.goNamed(
+      SendingProgressOverlayWidget.routeName,
+      queryParameters: {
+        'campaignId': serializeParam(
+          _resolvedCampaignId,
+          ParamType.String,
+        ),
+      }.withoutNulls,
+    );
   }
 
   String _formatDuration(int seconds) {
@@ -78,11 +252,12 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
   void _openDetailedReportModal({
     required BuildContext context,
     required String campaignId,
-    required List<Map<String, String>> contacts,
+    required List<Map<String, dynamic>> contacts,
     required int total,
     required int sent,
     required int failed,
     required int skipped,
+    required String messageBody,
   }) {
     showModalBottomSheet(
       context: context,
@@ -96,6 +271,8 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
           sent: sent,
           failed: failed,
           skipped: skipped,
+          messageBody: messageBody,
+          onRetryFailed: (failedList) => _retryFailedBroadcast(failedList),
         );
       },
     );
@@ -128,7 +305,7 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
               int failed = 0;
               int skipped = 0;
 
-              List<Map<String, String>> unifiedContacts = [];
+              List<Map<String, dynamic>> unifiedContacts = [];
 
               if (hasDbContacts) {
                 total = dbContacts.length;
@@ -148,6 +325,7 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                           'name': c.name.isEmpty ? 'Unknown' : c.name,
                           'phone': c.phone,
                           'status': c.status.isEmpty ? 'Pending' : c.status,
+                          'extra_fields': c.extraFields,
                         })
                     .toList();
               }
@@ -181,6 +359,8 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                               'name': (c['name'] ?? 'Unknown').toString(),
                               'phone': (c['phone'] ?? '').toString(),
                               'status': (c['status'] ?? 'Sent').toString(),
+                              'extra_fields':
+                                  c['extraFields'] ?? c['extra_fields'] ?? {},
                             })
                         .toList();
                   }
@@ -485,6 +665,49 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                   Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      if (failed > 0) ...[
+                                        // Retry Failed Messages Button
+                                        InkWell(
+                                          splashColor: Colors.transparent,
+                                          focusColor: Colors.transparent,
+                                          hoverColor: Colors.transparent,
+                                          highlightColor: Colors.transparent,
+                                          onTap: () {
+                                            final failedList = unifiedContacts
+                                                .where((c) =>
+                                                    (c['status'] ?? '')
+                                                        .toString()
+                                                        .trim()
+                                                        .toLowerCase() ==
+                                                    'failed')
+                                                .toList();
+                                            _retryFailedBroadcast(failedList);
+                                          },
+                                          child: wrapWithModel(
+                                            model: _model.retryButtonModel,
+                                            updateCallback: () =>
+                                                safeSetState(() {}),
+                                            child: ButtonWidget(
+                                              icon: const Icon(
+                                                Icons.replay_rounded,
+                                                color: Colors.white,
+                                                size: 20.0,
+                                              ),
+                                              iconPresent: true,
+                                              iconEndPresent: false,
+                                              content:
+                                                  'Retry Failed Messages ($failed)',
+                                              variant: 'destructive',
+                                              size: 'large',
+                                              fullWidth: true,
+                                              loading: false,
+                                              disabled: false,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 14.0),
+                                      ],
+
                                       // View Detailed Report Button
                                       InkWell(
                                         splashColor: Colors.transparent,
@@ -500,6 +723,8 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                             sent: sent,
                                             failed: failed,
                                             skipped: skipped,
+                                            messageBody:
+                                                _campaignRecord?.messageBody ?? '',
                                           );
                                         },
                                         child: wrapWithModel(
@@ -535,8 +760,21 @@ class _CampaignCompletedWidgetState extends State<CampaignCompletedWidget> {
                                         onTap: () {
                                           showCreateCampaignFromHistorySheet(
                                             context,
-                                            sourceCampaignId: _resolvedCampaignId,
-                                            preloadedContacts: unifiedContacts,
+                                            sourceCampaignId:
+                                                _resolvedCampaignId,
+                                            preloadedContacts: unifiedContacts
+                                                .map((c) => {
+                                                      'id': (c['id'] ?? '')
+                                                          .toString(),
+                                                      'name': (c['name'] ?? '')
+                                                          .toString(),
+                                                      'phone': (c['phone'] ?? '')
+                                                          .toString(),
+                                                      'status':
+                                                          (c['status'] ?? '')
+                                                              .toString(),
+                                                    })
+                                                .toList(),
                                           );
                                         },
                                         child: wrapWithModel(
@@ -651,14 +889,18 @@ class _DetailedReportSheet extends StatefulWidget {
     required this.sent,
     required this.failed,
     required this.skipped,
+    this.messageBody = '',
+    this.onRetryFailed,
   });
 
   final String campaignId;
-  final List<Map<String, String>> contacts;
+  final List<Map<String, dynamic>> contacts;
   final int total;
   final int sent;
   final int failed;
   final int skipped;
+  final String messageBody;
+  final void Function(List<Map<String, dynamic>> failedContacts)? onRetryFailed;
 
   @override
   State<_DetailedReportSheet> createState() => _DetailedReportSheetState();
@@ -668,26 +910,141 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
   String _selectedFilter = 'all'; // all, sent, failed, skipped
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  late List<Map<String, dynamic>> _sheetContacts;
+  StreamSubscription? _dbSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _sheetContacts = List.from(widget.contacts);
+    _dbSubscription = localDb.onTableChange.listen((table) {
+      if (table == 'contacts' && mounted) {
+        _refreshContacts();
+      }
+    });
+  }
+
+  Future<void> _refreshContacts() async {
+    if (widget.campaignId.isEmpty) return;
+    try {
+      final updated = await queryContactsRecordOnce(
+        queryBuilder: (q) =>
+            q.where('campaign_id', isEqualTo: widget.campaignId),
+      );
+      if (updated.isNotEmpty && mounted) {
+        setState(() {
+          _sheetContacts = updated
+              .map((c) => {
+                    'id': c.id,
+                    'name': c.name.isEmpty ? 'Unknown' : c.name,
+                    'phone': c.phone,
+                    'status': c.status.isEmpty ? 'Pending' : c.status,
+                    'extra_fields': c.extraFields,
+                  })
+              .toList();
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
+    _dbSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _sendManualMessage(Map<String, dynamic> c) async {
+    final phone = (c['phone'] ?? '').toString().trim();
+    if (phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Contact has no phone number.')),
+      );
+      return;
+    }
+
+    final name = (c['name'] ?? '').toString().trim();
+    final extraFields = <String, String>{};
+    if (c['extra_fields'] is Map) {
+      (c['extra_fields'] as Map).forEach((k, v) {
+        if (k != null && v != null) extraFields[k.toString()] = v.toString();
+      });
+    } else if (c['extraFields'] is Map) {
+      (c['extraFields'] as Map).forEach((k, v) {
+        if (k != null && v != null) extraFields[k.toString()] = v.toString();
+      });
+    }
+
+    final templateValues = <String, String>{
+      'Name': name.isNotEmpty ? name : 'Friend',
+      'Number': phone,
+      'Phone': phone,
+      ...extraFields,
+    };
+
+    final template =
+        widget.messageBody.isNotEmpty ? widget.messageBody : 'Hello {{Name}}';
+    final resolved = resolveMessageTemplate(template, templateValues);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: const [
+            Icon(Icons.open_in_new_rounded, color: Colors.white, size: 18.0),
+            SizedBox(width: 8.0),
+            Expanded(
+              child: Text(
+                  'Opening WhatsApp... Tap Send to dispatch and return automatically.'),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        backgroundColor: FlutterFlowTheme.of(context).primary,
+      ),
+    );
+
+    final contactId = (c['id'] ?? '').toString();
+    final ok = await NativeBridge.openManualWhatsAppChat(
+      phone: phone,
+      message: resolved,
+      contactId: contactId,
+    );
+
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Could not open WhatsApp for this contact.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
 
-    final filteredContacts = widget.contacts.where((c) {
-      final status = (c['status'] ?? '').trim().toLowerCase();
+    final totalCount = _sheetContacts.length;
+    final sentCount = _sheetContacts
+        .where((c) =>
+            (c['status'] ?? '').toString().trim().toLowerCase() == 'sent')
+        .length;
+    final failedCount = _sheetContacts
+        .where((c) =>
+            (c['status'] ?? '').toString().trim().toLowerCase() == 'failed')
+        .length;
+    final skippedCount = _sheetContacts
+        .where((c) =>
+            (c['status'] ?? '').toString().trim().toLowerCase() == 'skipped')
+        .length;
+
+    final filteredContacts = _sheetContacts.where((c) {
+      final status = (c['status'] ?? '').toString().trim().toLowerCase();
       if (_selectedFilter == 'sent' && status != 'sent') return false;
       if (_selectedFilter == 'failed' && status != 'failed') return false;
       if (_selectedFilter == 'skipped' && status != 'skipped') return false;
 
       if (_searchQuery.isNotEmpty) {
-        final name = (c['name'] ?? '').toLowerCase();
-        final phone = (c['phone'] ?? '').toLowerCase();
+        final name = (c['name'] ?? '').toString().toLowerCase();
+        final phone = (c['phone'] ?? '').toString().toLowerCase();
         final query = _searchQuery.toLowerCase();
         return name.contains(query) || phone.contains(query);
       }
@@ -738,7 +1095,7 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                     ),
                     const SizedBox(height: 2.0),
                     Text(
-                      '${widget.contacts.length} total recipients',
+                      '$totalCount total recipients',
                       style: GoogleFonts.inter(
                         color: theme.secondaryText,
                         fontSize: 13.0,
@@ -774,7 +1131,8 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                   Expanded(
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (val) => setState(() => _searchQuery = val.trim()),
+                      onChanged: (val) =>
+                          setState(() => _searchQuery = val.trim()),
                       style: GoogleFonts.inter(
                         color: theme.primaryText,
                         fontSize: 14.0,
@@ -812,18 +1170,18 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Row(
               children: [
-                _buildFilterChip('all', 'All (${widget.total})', theme.primaryText),
+                _buildFilterChip('all', 'All ($totalCount)', theme.primaryText),
                 const SizedBox(width: 8.0),
                 _buildFilterChip(
-                    'sent', 'Sent (${widget.sent})', theme.success,
+                    'sent', 'Sent ($sentCount)', theme.success,
                     icon: Icons.check_circle_rounded),
                 const SizedBox(width: 8.0),
                 _buildFilterChip(
-                    'failed', 'Failed (${widget.failed})', theme.error,
+                    'failed', 'Failed ($failedCount)', theme.error,
                     icon: Icons.error_rounded),
                 const SizedBox(width: 8.0),
                 _buildFilterChip(
-                    'skipped', 'Skipped (${widget.skipped})', theme.warning,
+                    'skipped', 'Skipped ($skippedCount)', theme.warning,
                     icon: Icons.block_rounded),
               ],
             ),
@@ -839,7 +1197,8 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.person_search_rounded,
-                            size: 48.0, color: theme.secondaryText.withOpacity(0.5)),
+                            size: 48.0,
+                            color: theme.secondaryText.withOpacity(0.5)),
                         const SizedBox(height: 8.0),
                         Text(
                           'No contacts found',
@@ -856,13 +1215,14 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24.0, vertical: 12.0),
                     itemCount: filteredContacts.length,
-                    separatorBuilder: (_, __) =>
-                        Divider(color: theme.alternate.withOpacity(0.5), height: 1.0),
+                    separatorBuilder: (_, __) => Divider(
+                        color: theme.alternate.withOpacity(0.5), height: 1.0),
                     itemBuilder: (context, index) {
                       final c = filteredContacts[index];
-                      final name = c['name'] ?? 'Unknown';
-                      final phone = c['phone'] ?? '';
-                      final status = (c['status'] ?? 'Pending').trim();
+                      final name = (c['name'] ?? 'Unknown').toString();
+                      final phone = (c['phone'] ?? '').toString();
+                      final status =
+                          (c['status'] ?? 'Pending').toString().trim();
                       final stLower = status.toLowerCase();
 
                       Color statusColor;
@@ -966,6 +1326,52 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                                 ],
                               ),
                             ),
+
+                            // Manual Pre-filled WhatsApp Send Button ("->")
+                            if (stLower == 'failed') ...[
+                              const SizedBox(width: 8.0),
+                              Material(
+                                color:
+                                    const Color(0xFF25D366).withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(20.0),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20.0),
+                                  onTap: () => _sendManualMessage(c),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      border: Border.all(
+                                        color: const Color(0xFF25D366)
+                                            .withOpacity(0.4),
+                                        width: 1.0,
+                                      ),
+                                      borderRadius:
+                                          BorderRadius.circular(20.0),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10.0, vertical: 4.5),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'Send',
+                                          style: GoogleFonts.inter(
+                                            color: const Color(0xFF128C7E),
+                                            fontSize: 12.0,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4.0),
+                                        const Icon(
+                                          Icons.arrow_forward_rounded,
+                                          size: 14.0,
+                                          color: Color(0xFF128C7E),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       );
@@ -980,6 +1386,43 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (failedCount > 0) ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          if (widget.onRetryFailed != null) {
+                            final failedList = _sheetContacts
+                                .where((c) =>
+                                    (c['status'] ?? '')
+                                        .toString()
+                                        .trim()
+                                        .toLowerCase() ==
+                                    'failed')
+                                .toList();
+                            widget.onRetryFailed!(failedList);
+                          }
+                        },
+                        icon: const Icon(Icons.replay_rounded, size: 18.0),
+                        label: Text('Retry Failed Messages ($failedCount)'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.error,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14.0),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14.0),
+                          ),
+                          textStyle: GoogleFonts.inter(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10.0),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
@@ -988,12 +1431,20 @@ class _DetailedReportSheetState extends State<_DetailedReportSheet> {
                         showCreateCampaignFromHistorySheet(
                           context,
                           sourceCampaignId: widget.campaignId,
-                          preloadedContacts: filteredContacts.isNotEmpty
-                              ? filteredContacts
-                              : widget.contacts,
+                          preloadedContacts: (filteredContacts.isNotEmpty
+                                  ? filteredContacts
+                                  : _sheetContacts)
+                              .map((c) => {
+                                    'id': (c['id'] ?? '').toString(),
+                                    'name': (c['name'] ?? '').toString(),
+                                    'phone': (c['phone'] ?? '').toString(),
+                                    'status': (c['status'] ?? '').toString(),
+                                  })
+                              .toList(),
                         );
                       },
-                      icon: const Icon(Icons.person_add_alt_1_rounded, size: 18.0),
+                      icon: const Icon(Icons.person_add_alt_1_rounded,
+                          size: 18.0),
                       label: Text(
                         _selectedFilter == 'all'
                             ? 'Create Campaign with Contacts'

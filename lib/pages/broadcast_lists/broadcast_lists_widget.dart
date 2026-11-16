@@ -150,6 +150,22 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget>
       child: Scaffold(
         key: scaffoldKey,
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        floatingActionButton: FloatingActionButton(
+          onPressed: () async {
+            await context.pushNamed(CreateBroadcastWidget.routeName);
+            await _handleRefresh();
+          },
+          backgroundColor: FlutterFlowTheme.of(context).primary,
+          elevation: 4.0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+          ),
+          child: const Icon(
+            Icons.add_rounded,
+            color: Colors.white,
+            size: 28.0,
+          ),
+        ),
         body: Container(
           child: Column(
             mainAxisSize: MainAxisSize.max,
@@ -422,38 +438,6 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget>
                                                 );
                                               },
                                             ),
-                                          InkWell(
-                                            splashColor: Colors.transparent,
-                                            focusColor: Colors.transparent,
-                                            hoverColor: Colors.transparent,
-                                            highlightColor: Colors.transparent,
-                                            onTap: () async {
-                                              await context.pushNamed(
-                                                  CreateBroadcastWidget
-                                                      .routeName);
-                                              await _handleRefresh();
-                                            },
-                                            child: wrapWithModel(
-                                              model: _model.buttonModel2,
-                                              updateCallback: () =>
-                                                  safeSetState(() {}),
-                                              child: ButtonWidget(
-                                                icon: Icon(
-                                                  Icons.add_rounded,
-                                                  color: Colors.white,
-                                                  size: 24.0,
-                                                ),
-                                                iconPresent: true,
-                                                iconEndPresent: false,
-                                                content: 'Create',
-                                                variant: 'primary',
-                                                size: 'large',
-                                                fullWidth: true,
-                                                loading: false,
-                                                disabled: false,
-                                              ),
-                                            ),
-                                          ),
                                           Builder(
                                             builder: (context) {
                                               final listWithIndex = columnPaddingCampaignsRecordList.asMap().entries.toList();

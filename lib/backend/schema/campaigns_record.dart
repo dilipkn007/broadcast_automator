@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 
+import 'dart:convert';
 import '/backend/schema/util/supabase_util.dart';
 import '/backend/schema/util/schema_util.dart';
 import '/backend/sqlite/local_database.dart';
@@ -72,6 +73,11 @@ class CampaignsRecord extends SupabaseRecord {
   int get currentIndex => _currentIndex ?? 0;
   bool hasCurrentIndex() => _currentIndex != null;
 
+  // "custom_columns" field.
+  List<String>? _customColumns;
+  List<String> get customColumns => _customColumns ?? const [];
+  bool hasCustomColumns() => _customColumns != null && _customColumns!.isNotEmpty;
+
   void _initializeFields() {
     _deviceId = snapshotData['device_id'] as String?;
     _name = snapshotData['name'] as String?;
@@ -87,6 +93,17 @@ class CampaignsRecord extends SupabaseRecord {
     _autoRetry = snapshotData['auto_retry'] == true ||
         snapshotData['auto_retry'] == 1;
     _currentIndex = castToType<int>(snapshotData['current_index']);
+    final rawCols = snapshotData['custom_columns'];
+    if (rawCols is String && rawCols.isNotEmpty) {
+      try {
+        final decoded = json.decode(rawCols);
+        if (decoded is List) {
+          _customColumns = decoded.map((e) => e.toString()).toList();
+        }
+      } catch (_) {}
+    } else if (rawCols is List) {
+      _customColumns = rawCols.map((e) => e.toString()).toList();
+    }
   }
 
   static String get tableName => 'campaigns';
@@ -143,6 +160,7 @@ Map<String, dynamic> createCampaignsRecordData({
   bool? skipInvalid,
   bool? autoRetry,
   int? currentIndex,
+  List<String>? customColumns,
 }) {
   final supabaseData = mapToSupabase(
     <String, dynamic>{
@@ -157,6 +175,8 @@ Map<String, dynamic> createCampaignsRecordData({
       'skip_invalid': skipInvalid,
       'auto_retry': autoRetry,
       'current_index': currentIndex,
+      if (customColumns != null && customColumns.isNotEmpty)
+        'custom_columns': json.encode(customColumns),
     }.withoutNulls,
   );
 

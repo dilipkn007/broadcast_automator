@@ -66,6 +66,62 @@ class WhatsAppAutomationService : AccessibilityService() {
                     entry.contains(WhatsAppAutomationService::class.java.simpleName)
             }
         }
+
+        private var manualSendContactId: String? = null
+        private var manualSendPhone: String? = null
+        private var manualSendActive: Boolean = false
+
+        fun prepareManualSend(contactId: String?, phone: String?) {
+            manualSendContactId = contactId
+            manualSendPhone = phone
+            manualSendActive = !contactId.isNullOrEmpty() || !phone.isNullOrEmpty()
+        }
+
+        fun whatsAppPackage(context: Context): String? {
+            val candidates = listOf("com.whatsapp", "com.whatsapp.w4b")
+            return candidates.firstOrNull { pkg ->
+                try {
+                    context.packageManager.getPackageInfo(pkg, 0)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+        }
+
+        fun normalizePhoneUtil(raw: String): String {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) return ""
+
+            var digits = trimmed.filter { it.isDigit() }
+            if (digits.isEmpty()) return ""
+
+            while (digits.startsWith("00")) {
+                digits = digits.drop(2)
+            }
+
+            val hasPlus = trimmed.startsWith("+")
+            if (hasPlus) {
+                if (digits.startsWith("910") && digits.length == 13) {
+                    digits = "91" + digits.substring(3)
+                }
+            } else {
+                if (digits.startsWith("0") && digits.length == 11) {
+                    digits = digits.drop(1)
+                }
+                if (digits.length == 10) {
+                    digits = "91$digits"
+                } else if (digits.startsWith("910") && digits.length == 13) {
+                    digits = "91" + digits.substring(3)
+                }
+            }
+
+            if (digits.length < 10) {
+                return ""
+            }
+
+            return digits
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -112,7 +168,45 @@ class WhatsAppAutomationService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // UI automation is driven by polling, not events.
+        if (manualSendActive && event != null) {
+            if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                val source = event.source
+                val vid = source?.viewIdResourceName?.lowercase() ?: ""
+                val desc = (event.contentDescription ?: source?.contentDescription)?.toString()?.lowercase() ?: ""
+                val text = (event.text?.joinToString(" ") ?: source?.text?.toString())?.lowercase() ?: ""
+
+                val isVoice = desc.contains("voice") || desc.contains("mic") ||
+                    desc.contains("audio") || desc.contains("record")
+
+                val isSend = !isVoice && (
+                    vid.contains("send") ||
+                    (desc.isNotEmpty() && SEND_LABELS.any { desc == it || desc.contains(it) }) ||
+                    (text.isNotEmpty() && SEND_LABELS.any { text == it || text.contains(it) })
+                )
+
+                if (isSend) {
+                    val cid = manualSendContactId
+                    val cPhone = manualSendPhone
+                    manualSendActive = false
+                    manualSendContactId = null
+                    manualSendPhone = null
+
+                    if (!cid.isNullOrEmpty()) {
+                        LocalDbSync.update(this, "contacts", cid, mapOf("status" to "Sent"))
+                        BroadcastStore.recordContactResult(this, cid, "", cPhone ?: "", "Sent")
+                    } else if (!cPhone.isNullOrEmpty()) {
+                        BroadcastStore.recordContactResult(this, "", "", cPhone, "Sent")
+                    }
+
+                    mainHandler.postDelayed({
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        mainHandler.postDelayed({
+                            relaunchApp()
+                        }, 400L)
+                    }, 500L)
+                }
+            }
+        }
     }
 
     override fun onInterrupt() {
@@ -255,7 +349,7 @@ class WhatsAppAutomationService : AccessibilityService() {
             return
         }
 
-        val message = resolveMessage(j.message, contact.name)
+        val message = resolveMessage(j.message, contact)
         val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
 
         val intent: Intent = when {
@@ -372,7 +466,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         }
 
         // 2. Populate input / caption if inside chat
-        val message = resolveMessage(j.message, contact.name)
+        val message = resolveMessage(j.message, contact)
         val validAttachments = j.attachments.filter { it.path.isNotEmpty() && File(it.path).exists() }
         if (validAttachments.size > 1 && message.isNotEmpty()) {
             populateCaptionIfPresent(root, message)
@@ -620,66 +714,29 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     // ---- Helpers ----
 
-    private fun whatsAppPackage(): String? {
-        val candidates = listOf("com.whatsapp", "com.whatsapp.w4b")
-        return candidates.firstOrNull { pkg ->
-            try {
-                packageManager.getPackageInfo(pkg, 0)
-                true
-            } catch (_: Exception) {
-                false
-            }
-        }
-    }
+    private fun whatsAppPackage(): String? = whatsAppPackage(this)
+
+    private fun normalizePhone(raw: String): String = normalizePhoneUtil(raw)
 
     private fun isWhatsAppWindow(packageName: String?): Boolean =
         packageName?.startsWith("com.whatsapp") == true
 
-    private fun resolveMessage(template: String, name: String): String {
-        val cleanName = name.trim()
-        val regex = Regex("""\{\{\s*name\s*\}\}|\{\s*name\s*\}""", RegexOption.IGNORE_CASE)
-        return regex.replace(template) { cleanName }
-    }
+    private fun resolveMessage(template: String, contact: WaContact): String {
+        var result = template
+        val nameRegex = Regex("""\{\{\s*name\s*\}\}|\{\s*name\s*\}""", RegexOption.IGNORE_CASE)
+        result = nameRegex.replace(result) { contact.name.trim() }
 
-    private fun normalizePhone(raw: String): String {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return ""
+        val phoneRegex = Regex("""\{\{\s*(?:number|phone)\s*\}\}|\{\s*(?:number|phone)\s*\}""", RegexOption.IGNORE_CASE)
+        result = phoneRegex.replace(result) { contact.phone.trim() }
 
-        var digits = trimmed.filter { it.isDigit() }
-        if (digits.isEmpty()) return ""
-
-        // Handle international dialing prefix '00' (e.g. 0091... -> 91...)
-        while (digits.startsWith("00")) {
-            digits = digits.drop(2)
-        }
-
-        val hasPlus = trimmed.startsWith("+")
-
-        if (hasPlus) {
-            // Already has explicit country code.
-            // Handle cases like +91 09876543210 -> strip the trunk '0' after 91
-            if (digits.startsWith("910") && digits.length == 13) {
-                digits = "91" + digits.substring(3)
-            }
-        } else {
-            // Local trunk '0' with 10 digits (e.g., 09876543210 -> 9876543210)
-            if (digits.startsWith("0") && digits.length == 11) {
-                digits = digits.drop(1)
-            }
-            // Standard 10-digit Indian mobile number -> prepend default country code 91
-            if (digits.length == 10) {
-                digits = "91$digits"
-            } else if (digits.startsWith("910") && digits.length == 13) {
-                digits = "91" + digits.substring(3)
+        contact.extraFields.forEach { (key, value) ->
+            if (key.isNotBlank()) {
+                val escapedKey = Regex.escape(key.trim())
+                val dynamicRegex = Regex("""\{\{\s*$escapedKey\s*\}\}|\{\s*$escapedKey\s*\}""", RegexOption.IGNORE_CASE)
+                result = dynamicRegex.replace(result) { value.trim() }
             }
         }
-
-        // Valid phone numbers with country code must be at least 10 digits
-        if (digits.length < 10) {
-            return ""
-        }
-
-        return digits
+        return result
     }
 
     private fun isInsideChat(root: AccessibilityNodeInfo): Boolean {
@@ -707,7 +764,7 @@ class WhatsAppAutomationService : AccessibilityService() {
             val pkg = whatsAppPackage() ?: return
             val phone = normalizePhone(contact.phone)
             if (phone.isEmpty()) return
-            val message = resolveMessage(j.message, contact.name)
+            val message = resolveMessage(j.message, contact)
             val encoded = Uri.encode(message)
             val link = "https://api.whatsapp.com/send?phone=$phone&text=$encoded"
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).apply {

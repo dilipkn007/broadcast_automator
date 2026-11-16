@@ -44,6 +44,25 @@ class NativeBridge {
     return _toMap(result);
   }
 
+  /// Opens WhatsApp directly to [phone] with [message] prefilled for manual sending.
+  /// Automatically returns to the app when the user taps Send (if accessibility service is active).
+  static Future<bool> openManualWhatsAppChat({
+    required String phone,
+    required String message,
+    String? contactId,
+  }) async {
+    try {
+      final result = await _channel.invokeMethod('openManualWhatsAppChat', {
+        'phone': phone,
+        'message': message,
+        'contactId': contactId ?? '',
+      });
+      return result == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> isAccessibilityEnabled() async {
     final result = await _channel.invokeMethod('isAccessibilityEnabled');
     return result == true;
@@ -125,7 +144,7 @@ class NativeBridge {
     required bool randomizeDelay,
     required bool autoRetry,
     required bool skipInvalid,
-    required List<Map<String, String>> contacts,
+    required List<Map<String, dynamic>> contacts,
     String? attachmentPath,
     String? attachmentMime,
     List<Map<String, String>>? attachments,
@@ -222,34 +241,104 @@ List<List<String>> parseCsv(String csvText) {
   return rows;
 }
 
+/// Result of parsing CSV rows with dynamic custom columns.
+class ParsedCsvData {
+  final List<String> customColumns;
+  final List<Map<String, dynamic>> contacts;
+
+  const ParsedCsvData({
+    required this.customColumns,
+    required this.contacts,
+  });
+}
+
+/// Converts parsed CSV rows into contacts with dynamic custom columns.
+/// Extra columns (such as age, class, etc.) are captured in 'extra_fields' Map<String, String>.
+ParsedCsvData parseCsvToContactsWithColumns(List<List<String>> rows) {
+  if (rows.isEmpty) {
+    return const ParsedCsvData(customColumns: [], contacts: []);
+  }
+
+  final headerRaw = rows.first;
+  final headerLower = headerRaw.map((h) => h.trim().toLowerCase()).toList();
+
+  var nameIdx = headerLower.indexWhere((h) => h.contains('name'));
+  var phoneIdx = headerLower.indexWhere((h) =>
+      h.contains('phone') ||
+      h.contains('number') ||
+      h.contains('mobile') ||
+      h.contains('contact'));
+
+  var startRow = 0;
+  final hasHeader = nameIdx != -1 || phoneIdx != -1;
+  final actualNameIdx = nameIdx != -1 ? nameIdx : 0;
+  final actualPhoneIdx = phoneIdx != -1 ? phoneIdx : 1;
+
+  final customColumns = <String>[];
+  if (hasHeader) {
+    startRow = 1;
+    for (var i = 0; i < headerRaw.length; i++) {
+      if (i != actualNameIdx && i != actualPhoneIdx) {
+        final col = headerRaw[i].trim();
+        if (col.isNotEmpty && !customColumns.contains(col)) {
+          customColumns.add(col);
+        }
+      }
+    }
+  }
+
+  final contacts = <Map<String, dynamic>>[];
+  for (var r = startRow; r < rows.length; r++) {
+    final row = rows[r];
+    if (row.isEmpty) continue;
+    final name = actualNameIdx < row.length ? row[actualNameIdx].trim() : '';
+    final phone = actualPhoneIdx < row.length ? row[actualPhoneIdx].trim() : '';
+    if (phone.isEmpty) continue;
+
+    final extraFields = <String, String>{};
+    if (hasHeader) {
+      for (var i = 0; i < row.length; i++) {
+        if (i != actualNameIdx && i != actualPhoneIdx && i < headerRaw.length) {
+          final col = headerRaw[i].trim();
+          if (col.isNotEmpty) {
+            extraFields[col] = row[i].trim();
+          }
+        }
+      }
+    }
+
+    contacts.add({
+      'name': name,
+      'phone': phone,
+      'extra_fields': extraFields,
+    });
+  }
+
+  // Deduplicate contacts by normalized phone number, keeping the first occurrence.
+  final seenNumbers = <String>{};
+  final uniqueContacts = <Map<String, dynamic>>[];
+  for (final contact in contacts) {
+    final normalized = normalizeWhatsAppNumber(contact['phone']?.toString() ?? '');
+    if (normalized.isNotEmpty && seenNumbers.add(normalized)) {
+      uniqueContacts.add(contact);
+    }
+  }
+
+  return ParsedCsvData(
+    customColumns: customColumns,
+    contacts: uniqueContacts,
+  );
+}
+
 /// Converts parsed CSV rows into `{name, phone}` contact maps, using the
 /// header row (Name/Phone, case-insensitive) to locate columns. Falls back
 /// to column order when no header matches.
 List<Map<String, String>> csvRowsToContacts(List<List<String>> rows) {
-  if (rows.isEmpty) return const [];
-
-  var nameIdx = 0;
-  var phoneIdx = 1;
-
-  final header = rows.first.map((h) => h.toLowerCase()).toList();
-  final nameHeader = header.indexWhere((h) => h.contains('name'));
-  final phoneHeader = header.indexWhere((h) => h.contains('phone'));
-
-  var startRow = 0;
-  if (nameHeader != -1) nameIdx = nameHeader;
-  if (phoneHeader != -1) phoneIdx = phoneHeader;
-  if (nameHeader != -1 || phoneHeader != -1) startRow = 1;
-
-  final contacts = <Map<String, String>>[];
-  for (var r = startRow; r < rows.length; r++) {
-    final row = rows[r];
-    if (row.isEmpty) continue;
-    final name = nameIdx < row.length ? row[nameIdx] : '';
-    final phone = phoneIdx < row.length ? row[phoneIdx] : '';
-    if (phone.trim().isEmpty) continue;
-    contacts.add({'name': name.trim(), 'phone': phone.trim()});
-  }
-  return contacts;
+  final parsed = parseCsvToContactsWithColumns(rows);
+  return parsed.contacts.map((c) => {
+    'name': c['name']?.toString() ?? '',
+    'phone': c['phone']?.toString() ?? '',
+  }).toList();
 }
 
 String encodeJson(Object? value) => json.encode(value);

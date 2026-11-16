@@ -50,9 +50,19 @@ class LocalDatabase {
       },
       onOpen: (db) async {
         await _createTables(db);
+        await _migrateColumns(db);
         await _cleanupOrphaned(db);
       },
     );
+  }
+
+  static Future<void> _migrateColumns(Database db) async {
+    try {
+      await db.execute('ALTER TABLE campaigns ADD COLUMN custom_columns TEXT;');
+    } catch (_) {}
+    try {
+      await db.execute('ALTER TABLE contacts ADD COLUMN extra_fields TEXT;');
+    } catch (_) {}
   }
 
   static Future<void> _cleanupOrphaned(Database db) async {
@@ -89,7 +99,8 @@ class LocalDatabase {
         randomize_delay INTEGER DEFAULT 1,
         skip_invalid INTEGER DEFAULT 1,
         auto_retry INTEGER DEFAULT 0,
-        current_index INTEGER DEFAULT 0
+        current_index INTEGER DEFAULT 0,
+        custom_columns TEXT
       )
     ''');
 
@@ -100,6 +111,7 @@ class LocalDatabase {
         name TEXT,
         phone TEXT,
         status TEXT,
+        extra_fields TEXT,
         FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE
       )
     ''');

@@ -197,6 +197,12 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     }
+                    "openManualWhatsAppChat" -> {
+                        val phone = call.argument<String>("phone") ?: ""
+                        val message = call.argument<String>("message") ?: ""
+                        val contactId = call.argument<String>("contactId") ?: ""
+                        handleOpenManualWhatsAppChat(phone, message, contactId, result)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -219,10 +225,18 @@ class MainActivity : FlutterActivity() {
         @Suppress("UNCHECKED_CAST")
         val rawContacts = (args["contacts"] as? List<*>) ?: emptyList<Any>()
         val contacts = rawContacts.mapNotNull { it as? Map<*, *> }.map { m ->
+            val extraMap = mutableMapOf<String, String>()
+            val rawExtra = m["extraFields"] as? Map<*, *>
+            rawExtra?.forEach { (k, v) ->
+                if (k != null && v != null) {
+                    extraMap[k.toString()] = v.toString()
+                }
+            }
             WaContact(
                 id = m["id"]?.toString() ?: "",
                 name = m["name"]?.toString() ?: "",
                 phone = m["phone"]?.toString() ?: "",
+                extraFields = extraMap,
             )
         }
         @Suppress("UNCHECKED_CAST")
@@ -309,6 +323,35 @@ class MainActivity : FlutterActivity() {
                 "overlayPermission" to true,
             ),
         )
+    }
+
+    private fun handleOpenManualWhatsAppChat(
+        phone: String,
+        message: String,
+        contactId: String,
+        result: MethodChannel.Result,
+    ) {
+        val cleanPhone = WhatsAppAutomationService.normalizePhoneUtil(phone)
+        if (cleanPhone.isEmpty()) {
+            result.error("invalid_phone", "Invalid phone number", null)
+            return
+        }
+
+        // Arm accessibility service for auto-return on send click
+        WhatsAppAutomationService.prepareManualSend(contactId, cleanPhone)
+
+        try {
+            val encoded = Uri.encode(message)
+            val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanPhone&text=$encoded")
+            val intent = Intent(Intent.ACTION_VIEW, uri)
+            val pkg = WhatsAppAutomationService.whatsAppPackage(this) ?: "com.whatsapp"
+            intent.setPackage(pkg)
+            startActivity(intent)
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "openManualWhatsAppChat failed", e)
+            result.error("launch_failed", e.message, null)
+        }
     }
 
     // ---- File picking ----

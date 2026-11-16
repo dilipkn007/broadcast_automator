@@ -11,7 +11,7 @@ Future<void> showCreateCampaignFromHistorySheet(
   BuildContext context, {
   required String sourceCampaignId,
   String? sourceCampaignName,
-  List<Map<String, String>>? preloadedContacts,
+  List<Map<String, dynamic>>? preloadedContacts,
 }) async {
   if (sourceCampaignId.isEmpty) return;
 
@@ -51,7 +51,7 @@ class _CreateCampaignFromHistoryModal extends StatefulWidget {
 
   final String sourceCampaignId;
   final String? sourceCampaignName;
-  final List<Map<String, String>>? preloadedContacts;
+  final List<Map<String, dynamic>>? preloadedContacts;
 
   @override
   State<_CreateCampaignFromHistoryModal> createState() =>
@@ -65,7 +65,7 @@ class _CreateCampaignFromHistoryModalState
   bool _submitting = false;
   String _selectedFilter = 'all'; // 'all', 'sent', 'failed'
 
-  List<Map<String, String>> _allContacts = [];
+  List<Map<String, dynamic>> _allContacts = [];
   String _campaignName = '';
 
   @override
@@ -131,7 +131,7 @@ class _CreateCampaignFromHistoryModalState
     }
   }
 
-  List<Map<String, String>> get _filteredContacts {
+  List<Map<String, dynamic>> get _filteredContacts {
     if (_selectedFilter == 'sent') {
       return _allContacts
           .where((c) => (c['status'] ?? '').trim().toLowerCase() == 'sent')
@@ -187,9 +187,13 @@ class _CreateCampaignFromHistoryModalState
             contactsToUse
                 .map((contact) => createContactsRecordData(
                       campaignId: newCampaignId,
-                      name: contact['name'],
-                      phone: contact['phone'],
+                      name: contact['name']?.toString() ?? '',
+                      phone: contact['phone']?.toString() ?? '',
                       status: 'Pending',
+                      extraFields: contact['extra_fields'] is Map
+                          ? (contact['extra_fields'] as Map)
+                              .map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''))
+                          : null,
                     ))
                 .toList(),
           );

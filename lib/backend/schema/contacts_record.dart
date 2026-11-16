@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:collection/collection.dart';
 
+import 'dart:convert';
 import '/backend/schema/util/supabase_util.dart';
 import '/backend/schema/util/schema_util.dart';
 import '/backend/sqlite/local_database.dart';
@@ -37,11 +38,27 @@ class ContactsRecord extends SupabaseRecord {
   String get status => _status ?? '';
   bool hasStatus() => _status != null;
 
+  // "extra_fields" field.
+  Map<String, String>? _extraFields;
+  Map<String, String> get extraFields => _extraFields ?? const {};
+  bool hasExtraFields() => _extraFields != null && _extraFields!.isNotEmpty;
+
   void _initializeFields() {
     _campaignId = snapshotData['campaign_id'] as String?;
     _name = snapshotData['name'] as String?;
     _phone = snapshotData['phone'] as String?;
     _status = snapshotData['status'] as String?;
+    final rawExtras = snapshotData['extra_fields'];
+    if (rawExtras is String && rawExtras.isNotEmpty) {
+      try {
+        final decoded = json.decode(rawExtras);
+        if (decoded is Map) {
+          _extraFields = decoded.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+        }
+      } catch (_) {}
+    } else if (rawExtras is Map) {
+      _extraFields = rawExtras.map((k, v) => MapEntry(k.toString(), v?.toString() ?? ''));
+    }
   }
 
   static String get tableName => 'contacts';
@@ -90,6 +107,7 @@ Map<String, dynamic> createContactsRecordData({
   String? name,
   String? phone,
   String? status,
+  Map<String, String>? extraFields,
 }) {
   final supabaseData = mapToSupabase(
     <String, dynamic>{
@@ -97,6 +115,8 @@ Map<String, dynamic> createContactsRecordData({
       'name': name,
       'phone': phone,
       'status': status,
+      if (extraFields != null && extraFields.isNotEmpty)
+        'extra_fields': json.encode(extraFields),
     }.withoutNulls,
   );
 

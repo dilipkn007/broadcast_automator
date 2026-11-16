@@ -29,6 +29,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final List<_ContactRow> _rows = [_ContactRow()];
+  final List<String> _customColumns = [];
   bool _saving = false;
   bool _loadingSource = false;
   bool _isImportingCsv = false;
@@ -67,11 +68,24 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
           row.dispose();
         }
         _rows.clear();
+        _customColumns.clear();
+        if (campaign != null && campaign.customColumns.isNotEmpty) {
+          _customColumns.addAll(campaign.customColumns);
+        }
 
         for (final c in contacts) {
           final row = _ContactRow();
           row.nameController.text = c.name;
           row.phoneController.text = c.phone;
+          c.extraFields.forEach((k, v) {
+            if (!_customColumns.contains(k)) {
+              _customColumns.add(k);
+            }
+            row.ensureController(k, v);
+          });
+          for (final col in _customColumns) {
+            row.ensureController(col);
+          }
           _rows.add(row);
         }
 
@@ -116,7 +130,17 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
 
     final csvText = picked['content']?.toString() ?? '';
     final rows = parseCsv(csvText);
-    final contacts = csvRowsToContacts(rows);
+    final parsed = parseCsvToContactsWithColumns(rows);
+    final contacts = parsed.contacts;
+
+    // Count rows with a phone number before dedup to report duplicates removed.
+    final totalRowsWithPhone = rows.length > 1
+        ? rows.skip(1).where((r) => r.length > 1 && r.any((cell) => cell.trim().isNotEmpty)).length
+        : 0;
+    final duplicatesRemoved = totalRowsWithPhone > contacts.length
+        ? totalRowsWithPhone - contacts.length
+        : 0;
+
     if (contacts.isEmpty) {
       if (mounted) {
         showSnackbar(
@@ -140,7 +164,10 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         _nameController.text = baseName;
       }
 
-      _appendContacts(contacts, fileName);
+      final suffix = duplicatesRemoved > 0
+          ? ' ($duplicatesRemoved duplicate${duplicatesRemoved == 1 ? '' : 's'} removed)'
+          : '';
+      _appendContacts(contacts, '$fileName$suffix', newColumns: parsed.customColumns);
     } finally {
       if (mounted) {
         setState(() {
@@ -150,10 +177,22 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
     }
   }
 
-  void _appendContacts(List<Map<String, String>> newContacts, String sourceDescription) {
+  void _appendContacts(
+    List<Map<String, dynamic>> newContacts,
+    String sourceDescription, {
+    List<String>? newColumns,
+  }) {
     if (newContacts.isEmpty) return;
 
     setState(() {
+      if (newColumns != null) {
+        for (final col in newColumns) {
+          if (!_customColumns.contains(col)) {
+            _customColumns.add(col);
+          }
+        }
+      }
+
       final isSingleEmptyRow = _rows.length == 1 &&
           _rows[0].nameController.text.trim().isEmpty &&
           _rows[0].phoneController.text.trim().isEmpty;
@@ -167,8 +206,23 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
 
       for (final c in newContacts) {
         final row = _ContactRow();
-        row.nameController.text = c['name'] ?? '';
-        row.phoneController.text = c['phone'] ?? '';
+        row.nameController.text = c['name']?.toString() ?? '';
+        row.phoneController.text = normalizeWhatsAppNumber(c['phone']?.toString() ?? '');
+        final extras = c['extra_fields'];
+        if (extras is Map) {
+          extras.forEach((k, v) {
+            final colStr = k.toString().trim();
+            if (colStr.isNotEmpty) {
+              if (!_customColumns.contains(colStr)) {
+                _customColumns.add(colStr);
+              }
+              row.ensureController(colStr, v?.toString() ?? '');
+            }
+          });
+        }
+        for (final col in _customColumns) {
+          row.ensureController(col);
+        }
         _rows.add(row);
       }
 
@@ -198,20 +252,109 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
     );
   }
 
+  Future<void> _showAddColumnDialog() async {
+    final controller = TextEditingController();
+    final colName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
+        title: Text(
+          'Add Custom Column',
+          style: FlutterFlowTheme.of(context).titleMedium,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Add dynamic fields like age, class, city, etc. You can tag them in messages as {{age}}, {{class}}.',
+              style: FlutterFlowTheme.of(context).bodySmall,
+            ),
+            const SizedBox(height: 12.0),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: _contactDecoration('Column Name (e.g. age, class)'),
+              textCapitalization: TextCapitalization.words,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: FlutterFlowTheme.of(context).secondaryText),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = controller.text.trim();
+              Navigator.of(ctx).pop(val);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: FlutterFlowTheme.of(context).primary,
+              foregroundColor: FlutterFlowTheme.of(context).primaryText,
+            ),
+            child: const Text('Add Column'),
+          ),
+        ],
+      ),
+    );
+
+    if (colName != null && colName.isNotEmpty) {
+      final cleanCol = colName.replaceAll(RegExp(r'[{}]'), '').trim();
+      if (cleanCol.isEmpty) return;
+      if (cleanCol.toLowerCase() == 'name' || cleanCol.toLowerCase() == 'phone' || cleanCol.toLowerCase() == 'number') {
+        showSnackbar(context, '"$cleanCol" is a built-in column');
+        return;
+      }
+      if (_customColumns.any((c) => c.toLowerCase() == cleanCol.toLowerCase())) {
+        showSnackbar(context, 'Column "$cleanCol" already exists');
+        return;
+      }
+      setState(() {
+        _customColumns.add(cleanCol);
+        for (final r in _rows) {
+          r.ensureController(cleanCol);
+        }
+      });
+      showSnackbar(context, 'Added column "$cleanCol"');
+    }
+  }
+
+  void _removeColumn(String colName) {
+    setState(() {
+      _customColumns.remove(colName);
+      for (final r in _rows) {
+        r.removeController(colName);
+      }
+    });
+    showSnackbar(context, 'Removed column "$colName"');
+  }
+
   void _clearContacts() {
     setState(() {
       for (final row in _rows) {
         row.dispose();
       }
       _rows.clear();
-      _rows.add(_ContactRow());
+      final newRow = _ContactRow();
+      for (final col in _customColumns) {
+        newRow.ensureController(col);
+      }
+      _rows.add(newRow);
       _showAllContacts = false;
     });
   }
 
   void _addRow() {
     setState(() {
-      _rows.add(_ContactRow());
+      final newRow = _ContactRow();
+      for (final col in _customColumns) {
+        newRow.ensureController(col);
+      }
+      _rows.add(newRow);
       _showAllContacts = true;
     });
   }
@@ -229,7 +372,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
       showSnackbar(context, 'Enter a campaign name');
       return;
     }
-    final contacts = <Map<String, String>>[];
+    final contacts = <Map<String, dynamic>>[];
     for (final row in _rows) {
       final name = row.nameController.text.trim();
       final phone = row.phoneController.text.trim();
@@ -238,9 +381,17 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         showSnackbar(context, 'Every contact needs a phone number');
         return;
       }
+      final extraFields = <String, String>{};
+      for (final col in _customColumns) {
+        final val = row.extraControllers[col]?.text.trim() ?? '';
+        if (val.isNotEmpty) {
+          extraFields[col] = val;
+        }
+      }
       contacts.add({
         'name': name,
         'phone': phone,
+        'extra_fields': extraFields,
       });
     }
     if (contacts.isEmpty) {
@@ -253,11 +404,6 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
     });
 
     try {
-      // -----------------------------------------------------------------------
-      // 2. CREATING CAMPAIGNS: INJECTING SAVED DEVICE_ID
-      // Includes the device_id retrieved from FFAppState().userDeviceUuid
-      // in the Supabase public.campaigns insert payload.
-      // -----------------------------------------------------------------------
       final campaignInsert = await localDb
           .from(CampaignsRecord.tableName)
           .insert(createCampaignsRecordData(
@@ -272,6 +418,7 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
             skipInvalid: true,
             autoRetry: false,
             currentIndex: 0,
+            customColumns: _customColumns,
           ))
           .select()
           .single();
@@ -281,9 +428,10 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         contacts
             .map((contact) => createContactsRecordData(
                   campaignId: campaignId,
-                  name: contact['name'],
-                  phone: contact['phone'],
+                  name: contact['name'] as String?,
+                  phone: contact['phone'] as String?,
                   status: 'Pending',
+                  extraFields: contact['extra_fields'] as Map<String, String>?,
                 ))
             .toList(),
       );
@@ -587,10 +735,75 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
                   ),
                 ),
               Padding(
-                padding: EdgeInsetsDirectional.fromSTEB(0.0, 10.0, 0.0, 16.0),
+                padding: EdgeInsetsDirectional.fromSTEB(0.0, 10.0, 0.0, 8.0),
                 child: Text(
                   'Enter contact details manually or use an import option above',
                   style: FlutterFlowTheme.of(context).bodySmall,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'Columns / Variables:',
+                          style: GoogleFonts.inter(
+                            fontSize: 12.0,
+                            fontWeight: FontWeight.w600,
+                            color: FlutterFlowTheme.of(context).secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6.0),
+                    Wrap(
+                      spacing: 6.0,
+                      runSpacing: 6.0,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _columnChip('Name', isDefault: true),
+                        _columnChip('Phone', isDefault: true),
+                        for (final col in _customColumns)
+                          _columnChip(
+                            col,
+                            isDefault: false,
+                            onDeleted: () => _removeColumn(col),
+                          ),
+                        ActionChip(
+                          avatar: Icon(
+                            Icons.add_rounded,
+                            size: 15.0,
+                            color: FlutterFlowTheme.of(context).primary,
+                          ),
+                          label: Text(
+                            'Add Column',
+                            style: GoogleFonts.inter(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: FlutterFlowTheme.of(context).primary,
+                            ),
+                          ),
+                          backgroundColor: FlutterFlowTheme.of(context)
+                              .primary
+                              .withOpacity(0.08),
+                          side: BorderSide(
+                            color: FlutterFlowTheme.of(context)
+                                .primary
+                                .withOpacity(0.3),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20.0),
+                          ),
+                          onPressed: _showAddColumnDialog,
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
               Builder(
@@ -602,47 +815,136 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       for (var i = 0; i < displayCount; i++)
-                        Padding(
-                          padding: EdgeInsetsDirectional.fromSTEB(
-                              0.0, 0.0, 0.0, 12.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                flex: 4,
-                                child: TextFormField(
-                                  controller: _rows[i].nameController,
-                                  style: FlutterFlowTheme.of(context).bodyMedium,
-                                  decoration: _contactDecoration('Name'),
-                                  textInputAction: TextInputAction.next,
-                                ),
-                              ),
-                              SizedBox(width: 8.0),
-                              Expanded(
-                                flex: 4,
-                                child: TextFormField(
-                                  controller: _rows[i].phoneController,
-                                  style: FlutterFlowTheme.of(context).bodyMedium,
-                                  decoration: _contactDecoration('Phone number'),
-                                  keyboardType: TextInputType.phone,
-                                  textInputAction: TextInputAction.next,
-                                ),
-                              ),
-                              if (_rows.length > 1)
-                                IconButton(
-                                  onPressed: () => _removeRow(i),
-                                  icon: Icon(
-                                    Icons.remove_circle_outline_rounded,
-                                    color: FlutterFlowTheme.of(context)
-                                        .secondaryText,
-                                    size: 22.0,
+                        if (_customColumns.isEmpty)
+                          Padding(
+                            padding: EdgeInsetsDirectional.fromSTEB(
+                                0.0, 0.0, 0.0, 12.0),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  flex: 4,
+                                  child: TextFormField(
+                                    controller: _rows[i].nameController,
+                                    style: FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: _contactDecoration('Name'),
+                                    textInputAction: TextInputAction.next,
                                   ),
-                                )
-                              else
-                                SizedBox(width: 48.0),
-                            ],
+                                ),
+                                SizedBox(width: 8.0),
+                                Expanded(
+                                  flex: 4,
+                                  child: TextFormField(
+                                    controller: _rows[i].phoneController,
+                                    style: FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: _contactDecoration('Phone number'),
+                                    keyboardType: TextInputType.phone,
+                                    textInputAction: TextInputAction.next,
+                                  ),
+                                ),
+                                if (_rows.length > 1)
+                                  IconButton(
+                                    onPressed: () => _removeRow(i),
+                                    icon: Icon(
+                                      Icons.remove_circle_outline_rounded,
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                      size: 22.0,
+                                    ),
+                                  )
+                                else
+                                  SizedBox(width: 48.0),
+                              ],
+                            ),
+                          )
+                        else
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 12.0),
+                            padding: const EdgeInsets.all(10.0),
+                            decoration: BoxDecoration(
+                              color: FlutterFlowTheme.of(context)
+                                  .secondaryBackground,
+                              borderRadius: BorderRadius.circular(12.0),
+                              border: Border.all(
+                                color: FlutterFlowTheme.of(context).alternate,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Expanded(
+                                      flex: 4,
+                                      child: TextFormField(
+                                        controller: _rows[i].nameController,
+                                        style: FlutterFlowTheme.of(context)
+                                            .bodyMedium,
+                                        decoration: _contactDecoration('Name'),
+                                        textInputAction: TextInputAction.next,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8.0),
+                                    Expanded(
+                                      flex: 4,
+                                      child: TextFormField(
+                                        controller: _rows[i].phoneController,
+                                        style: FlutterFlowTheme.of(context)
+                                            .bodyMedium,
+                                        decoration:
+                                            _contactDecoration('Phone number'),
+                                        keyboardType: TextInputType.phone,
+                                        textInputAction: TextInputAction.next,
+                                      ),
+                                    ),
+                                    if (_rows.length > 1)
+                                      IconButton(
+                                        onPressed: () => _removeRow(i),
+                                        icon: Icon(
+                                          Icons.remove_circle_outline_rounded,
+                                          color: FlutterFlowTheme.of(context)
+                                              .secondaryText,
+                                          size: 22.0,
+                                        ),
+                                      )
+                                    else
+                                      const SizedBox(width: 48.0),
+                                  ],
+                                ),
+                                const SizedBox(height: 8.0),
+                                Wrap(
+                                  spacing: 8.0,
+                                  runSpacing: 8.0,
+                                  children: [
+                                    for (final col in _customColumns)
+                                      SizedBox(
+                                        width: 140.0,
+                                        child: TextFormField(
+                                          controller:
+                                              _rows[i].ensureController(col),
+                                          style: FlutterFlowTheme.of(context)
+                                              .bodyMedium
+                                              .override(
+                                                fontSize: 13.0,
+                                              ),
+                                          decoration: _contactDecoration(col)
+                                              .copyWith(
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                              horizontal: 10.0,
+                                              vertical: 10.0,
+                                            ),
+                                          ),
+                                          textInputAction:
+                                              TextInputAction.next,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
                       if (_rows.length > 50 && !_showAllContacts)
                         Container(
                           margin: const EdgeInsets.only(bottom: 12.0),
@@ -743,7 +1045,46 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
       ),
     ),
   );
-}
+  }
+
+  Widget _columnChip(
+    String name, {
+    required bool isDefault,
+    VoidCallback? onDeleted,
+  }) {
+    return Chip(
+      label: Text(
+        '{{$name}}',
+        style: GoogleFonts.inter(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w500,
+          color: isDefault
+              ? FlutterFlowTheme.of(context).primaryText
+              : FlutterFlowTheme.of(context).primary,
+        ),
+      ),
+      backgroundColor: isDefault
+          ? FlutterFlowTheme.of(context).secondaryBackground
+          : FlutterFlowTheme.of(context).primary.withOpacity(0.08),
+      side: BorderSide(
+        color: isDefault
+            ? FlutterFlowTheme.of(context).alternate
+            : FlutterFlowTheme.of(context).primary.withOpacity(0.35),
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20.0),
+      ),
+      visualDensity: VisualDensity.compact,
+      deleteIcon: onDeleted != null
+          ? Icon(
+              Icons.close_rounded,
+              size: 14.0,
+              color: FlutterFlowTheme.of(context).secondaryText,
+            )
+          : null,
+      onDeleted: onDeleted,
+    );
+  }
 
   InputDecoration _contactDecoration(String label) {
     return InputDecoration(
@@ -776,9 +1117,26 @@ class _ContactRow {
 
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
+  final Map<String, TextEditingController> extraControllers = {};
+
+  TextEditingController ensureController(String colName, [String initialValue = '']) {
+    if (!extraControllers.containsKey(colName)) {
+      extraControllers[colName] = TextEditingController(text: initialValue);
+    }
+    return extraControllers[colName]!;
+  }
+
+  void removeController(String colName) {
+    extraControllers[colName]?.dispose();
+    extraControllers.remove(colName);
+  }
 
   void dispose() {
     nameController.dispose();
     phoneController.dispose();
+    for (final c in extraControllers.values) {
+      c.dispose();
+    }
+    extraControllers.clear();
   }
 }

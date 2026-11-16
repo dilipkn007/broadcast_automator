@@ -9,6 +9,7 @@ data class WaContact(
     val id: String,
     val name: String,
     val phone: String,
+    val extraFields: Map<String, String> = emptyMap(),
 )
 
 /** A single media/document attachment to be sent. */
@@ -74,12 +75,18 @@ object BroadcastStore {
     ) {
         val arr = JSONArray()
         contacts.forEach { c ->
-            arr.put(
-                JSONObject()
-                    .put("id", c.id)
-                    .put("name", c.name)
-                    .put("phone", c.phone),
-            )
+            val obj = JSONObject()
+                .put("id", c.id)
+                .put("name", c.name)
+                .put("phone", c.phone)
+            if (c.extraFields.isNotEmpty()) {
+                val extraObj = JSONObject()
+                c.extraFields.forEach { (k, v) ->
+                    extraObj.put(k, v)
+                }
+                obj.put("extraFields", extraObj)
+            }
+            arr.put(obj)
         }
         val attArr = JSONArray()
         attachments.forEach { a ->
@@ -114,11 +121,21 @@ object BroadcastStore {
         val arr = JSONArray(contactsJson)
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
+            val extrasMap = mutableMapOf<String, String>()
+            val extraObj = o.optJSONObject("extraFields")
+            if (extraObj != null) {
+                val keys = extraObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    extrasMap[k] = extraObj.optString(k, "")
+                }
+            }
             contacts.add(
                 WaContact(
                     id = o.optString("id"),
                     name = o.optString("name"),
                     phone = o.optString("phone"),
+                    extraFields = extrasMap,
                 ),
             )
         }

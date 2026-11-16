@@ -40,6 +40,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
 
   List<Map<String, String>> _attachments = [];
+  ContactsRecord? _sampleContact;
 
   @override
   void initState() {
@@ -54,6 +55,22 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
     });
 
     _loadAttachments();
+    _loadSampleContact();
+  }
+
+  Future<void> _loadSampleContact() async {
+    final campaignId = widget.campaignId;
+    if (campaignId == null || campaignId.isEmpty) return;
+    try {
+      final list = await queryContactsRecordOnce(
+        queryBuilder: (q) => q.where('campaign_id', isEqualTo: campaignId).limit(1),
+      );
+      if (list.isNotEmpty && mounted) {
+        setState(() {
+          _sampleContact = list.first;
+        });
+      }
+    } catch (_) {}
   }
 
   void _insertTemplateVariable(String variable) {
@@ -783,77 +800,127 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                   .center,
                                                           children: [
                                                             if (!isCompleted)
-                                                            Row(
-                                                              mainAxisSize:
-                                                                  MainAxisSize
-                                                                      .max,
-                                                              mainAxisAlignment:
-                                                                  MainAxisAlignment
-                                                                      .start,
-                                                              crossAxisAlignment:
-                                                                  CrossAxisAlignment
-                                                                      .center,
-                                                              children: [
-                                                                FlutterFlowIconButton(
-                                                                  borderRadius:
-                                                                      8.0,
-                                                                  buttonSize:
-                                                                      36.0,
-                                                                  fillColor: Colors
-                                                                      .transparent,
-                                                                  icon: Icon(
-                                                                    Icons
-                                                                        .alternate_email_rounded,
-                                                                    color: FlutterFlowTheme.of(
-                                                                            context)
-                                                                        .primary,
-                                                                    size: 20.0,
-                                                                  ),
-                                                                  onPressed:
-                                                                      () {
-                                                                    _insertTemplateVariable('{{Name}}');
-                                                                  },
-                                                                ),
-                                                                InkWell(
-                                                                  splashColor: Colors.transparent,
-                                                                  focusColor: Colors.transparent,
-                                                                  hoverColor: Colors.transparent,
-                                                                  highlightColor: Colors.transparent,
-                                                                  onTap: () => _insertTemplateVariable('{{Name}}'),
-                                                                  borderRadius: BorderRadius.circular(16.0),
-                                                                  child: Container(
-                                                                    padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                                                                    decoration: BoxDecoration(
-                                                                      color: FlutterFlowTheme.of(context).primary.withOpacity(0.12),
-                                                                      borderRadius: BorderRadius.circular(16.0),
-                                                                      border: Border.all(
-                                                                        color: FlutterFlowTheme.of(context).primary.withOpacity(0.3),
-                                                                        width: 1.0,
-                                                                      ),
-                                                                    ),
+                                                              Builder(
+                                                                builder: (context) {
+                                                                  final availableColumns = <String>['Name', 'Number'];
+                                                                  for (final col in broadcastDetailsCampaignsRecord.customColumns) {
+                                                                    if (!availableColumns.any((c) => c.toLowerCase() == col.toLowerCase())) {
+                                                                      availableColumns.add(col);
+                                                                    }
+                                                                  }
+                                                                  if (_sampleContact != null) {
+                                                                    for (final col in _sampleContact!.extraFields.keys) {
+                                                                      if (!availableColumns.any((c) => c.toLowerCase() == col.toLowerCase())) {
+                                                                        availableColumns.add(col);
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                  return Expanded(
                                                                     child: Row(
-                                                                      mainAxisSize: MainAxisSize.min,
+                                                                      mainAxisSize: MainAxisSize.max,
+                                                                      mainAxisAlignment: MainAxisAlignment.start,
+                                                                      crossAxisAlignment: CrossAxisAlignment.center,
                                                                       children: [
-                                                                        Icon(
-                                                                          Icons.add_rounded,
-                                                                          size: 14.0,
-                                                                          color: FlutterFlowTheme.of(context).primary,
+                                                                        PopupMenuButton<String>(
+                                                                          icon: Icon(
+                                                                            Icons.alternate_email_rounded,
+                                                                            color: FlutterFlowTheme.of(context).primary,
+                                                                            size: 22.0,
+                                                                          ),
+                                                                          tooltip: 'Insert variable',
+                                                                          color: FlutterFlowTheme.of(context).secondaryBackground,
+                                                                          elevation: 6.0,
+                                                                          shape: RoundedRectangleBorder(
+                                                                            borderRadius: BorderRadius.circular(12.0),
+                                                                            side: BorderSide(
+                                                                              color: FlutterFlowTheme.of(context).alternate,
+                                                                            ),
+                                                                          ),
+                                                                          onSelected: (col) {
+                                                                            _insertTemplateVariable('{{$col}}');
+                                                                          },
+                                                                          itemBuilder: (context) {
+                                                                            return availableColumns.map((col) {
+                                                                              return PopupMenuItem<String>(
+                                                                                value: col,
+                                                                                height: 40.0,
+                                                                                child: Row(
+                                                                                  children: [
+                                                                                    Icon(
+                                                                                      Icons.data_object_rounded,
+                                                                                      size: 16.0,
+                                                                                      color: FlutterFlowTheme.of(context).primary,
+                                                                                    ),
+                                                                                    const SizedBox(width: 8.0),
+                                                                                    Text(
+                                                                                      '{{$col}}',
+                                                                                      style: GoogleFonts.inter(
+                                                                                        fontSize: 13.0,
+                                                                                        fontWeight: FontWeight.w600,
+                                                                                        color: FlutterFlowTheme.of(context).primaryText,
+                                                                                      ),
+                                                                                    ),
+                                                                                  ],
+                                                                                ),
+                                                                              );
+                                                                            }).toList();
+                                                                          },
                                                                         ),
-                                                                        SizedBox(width: 2.0),
-                                                                        Text(
-                                                                          '{{Name}}',
-                                                                          style: FlutterFlowTheme.of(context).labelSmall.copyWith(
-                                                                                color: FlutterFlowTheme.of(context).primary,
-                                                                                fontWeight: FontWeight.bold,
-                                                                              ),
+                                                                        Expanded(
+                                                                          child: SingleChildScrollView(
+                                                                            scrollDirection: Axis.horizontal,
+                                                                            child: Row(
+                                                                              children: [
+                                                                                for (final col in availableColumns)
+                                                                                  Padding(
+                                                                                    padding: const EdgeInsets.only(right: 6.0),
+                                                                                    child: InkWell(
+                                                                                      splashColor: Colors.transparent,
+                                                                                      focusColor: Colors.transparent,
+                                                                                      hoverColor: Colors.transparent,
+                                                                                      highlightColor: Colors.transparent,
+                                                                                      onTap: () => _insertTemplateVariable('{{$col}}'),
+                                                                                      borderRadius: BorderRadius.circular(16.0),
+                                                                                      child: Container(
+                                                                                        padding: const EdgeInsets.symmetric(horizontal: 9.0, vertical: 4.0),
+                                                                                        decoration: BoxDecoration(
+                                                                                          color: FlutterFlowTheme.of(context).primary.withOpacity(0.12),
+                                                                                          borderRadius: BorderRadius.circular(16.0),
+                                                                                          border: Border.all(
+                                                                                            color: FlutterFlowTheme.of(context).primary.withOpacity(0.3),
+                                                                                            width: 1.0,
+                                                                                          ),
+                                                                                        ),
+                                                                                        child: Row(
+                                                                                          mainAxisSize: MainAxisSize.min,
+                                                                                          children: [
+                                                                                            Icon(
+                                                                                              Icons.add_rounded,
+                                                                                              size: 13.0,
+                                                                                              color: FlutterFlowTheme.of(context).primary,
+                                                                                            ),
+                                                                                            const SizedBox(width: 2.0),
+                                                                                            Text(
+                                                                                              '{{$col}}',
+                                                                                              style: FlutterFlowTheme.of(context).labelSmall.copyWith(
+                                                                                                    color: FlutterFlowTheme.of(context).primary,
+                                                                                                    fontWeight: FontWeight.bold,
+                                                                                                  ),
+                                                                                            ),
+                                                                                          ],
+                                                                                        ),
+                                                                                      ),
+                                                                                    ),
+                                                                                  ),
+                                                                              ],
+                                                                            ),
+                                                                          ),
                                                                         ),
                                                                       ],
                                                                     ),
-                                                                  ),
-                                                                ),
-                                                              ].divide(SizedBox(
-                                                                  width: 8.0)),
-                                                            ),
+                                                                  );
+                                                                },
+                                                              ),
                                                             Text(
                                                               '${valueOrDefault<String>(
                                                                 _model
@@ -930,15 +997,30 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                   ],
                                                                 ),
                                                                 SizedBox(height: 6.0),
-                                                                Text(
-                                                                  resolveMessageTemplate(
-                                                                    _model.messageBody ?? '',
-                                                                    {'Name': 'Radha Raman'},
-                                                                  ),
-                                                                  style: FlutterFlowTheme.of(context).bodySmall.copyWith(
-                                                                        color: FlutterFlowTheme.of(context).primaryText,
-                                                                        height: 1.4,
+                                                                Builder(
+                                                                  builder: (context) {
+                                                                    final previewValues = <String, String>{
+                                                                      'Name': _sampleContact?.name.isNotEmpty == true ? _sampleContact!.name : 'Radha Raman',
+                                                                      'Number': _sampleContact?.phone.isNotEmpty == true ? _sampleContact!.phone : '+1234567890',
+                                                                      'Phone': _sampleContact?.phone.isNotEmpty == true ? _sampleContact!.phone : '+1234567890',
+                                                                    };
+                                                                    if (_sampleContact != null && _sampleContact!.extraFields.isNotEmpty) {
+                                                                      previewValues.addAll(_sampleContact!.extraFields);
+                                                                    }
+                                                                    for (final col in broadcastDetailsCampaignsRecord.customColumns) {
+                                                                      previewValues.putIfAbsent(col, () => 'Sample $col');
+                                                                    }
+                                                                    return Text(
+                                                                      resolveMessageTemplate(
+                                                                        _model.messageBody ?? '',
+                                                                        previewValues,
                                                                       ),
+                                                                      style: FlutterFlowTheme.of(context).bodySmall.copyWith(
+                                                                            color: FlutterFlowTheme.of(context).primaryText,
+                                                                            height: 1.4,
+                                                                          ),
+                                                                    );
+                                                                  },
                                                                 ),
                                                               ],
                                                             ),
@@ -1668,6 +1750,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                               'name': c.name,
                                                                               'phone': c.phone,
                                                                               'status': c.status,
+                                                                              'extra_fields': c.extraFields,
                                                                             })
                                                                         .toList(),
                                                                   );
@@ -1795,6 +1878,23 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                                 ),
                                                                               ),
                                                                         ),
+                                                                        if (contact.extraFields.isNotEmpty)
+                                                                          Padding(
+                                                                            padding: const EdgeInsets.only(top: 2.0),
+                                                                            child: Text(
+                                                                              contact.extraFields.entries
+                                                                                  .map((e) => '${e.key}: ${e.value}')
+                                                                                  .join(' • '),
+                                                                              style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                                                    font: GoogleFonts.inter(
+                                                                                      fontSize: 11.0,
+                                                                                      color: FlutterFlowTheme.of(context).primary,
+                                                                                    ),
+                                                                                  ),
+                                                                              maxLines: 1,
+                                                                              overflow: TextOverflow.ellipsis,
+                                                                            ),
+                                                                          ),
                                                                       ],
                                                                     ),
                                                                     Container(
@@ -2076,6 +2176,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                            'id': c.id,
                                                            'name': c.name,
                                                            'phone': c.phone,
+                                                           'extraFields': c.extraFields,
                                                          })
                                                      .toList(),
                                                  attachmentPath:
