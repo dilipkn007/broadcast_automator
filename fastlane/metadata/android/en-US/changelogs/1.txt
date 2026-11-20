@@ -1,0 +1,6 @@
+Initial release of Broadcast Automator:
+- Personalized WhatsApp broadcast campaigns
+- CSV import with custom columns & duplicate detection
+- Phone contacts selector & smart quick paste
+- Offline local SQLite database
+- Accessibility automation engine with floating progress overlay

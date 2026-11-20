@@ -1,0 +1,14 @@
+Broadcast Automator makes it easy to send personalized WhatsApp messages to groups of contacts without creating broadcast lists or saving every contact into your address book.
+
+<b>Key Features:</b>
+
+• <b>Contact Import:</b> Import contacts directly from CSV files, select from your phone's contact list, or paste numbers directly with smart auto-detection.
+• <b>Duplicate Filtering:</b> Phone numbers are automatically normalized and duplicates are cleanly filtered out so each recipient only receives one message.
+• <b>Personalized Templates:</b> Customize messages using placeholders like {Name}, {Phone}, or any custom CSV columns. Type @ in the editor to quickly insert variables.
+• <b>Progress Tracking:</b> Monitor campaigns in real time as each message is sent, complete with overlay controls and pause/resume capability.
+• <b>Privacy First & Offline:</b> Your contacts and messages remain stored locally on your device in an offline SQLite database. No external tracking, ads, or analytics.
+
+<b>Permissions Required:</b>
+• Accessibility Service: Enables automated interaction to send messages seamlessly.
+• Draw Overlays: Displays non-intrusive floating progress and controls while messages are sending.
+• Contacts (Optional): Allows selecting recipients directly from your address book.
