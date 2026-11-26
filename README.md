@@ -2,29 +2,43 @@
 
 An open-source, privacy-first Android app for automating user-initiated WhatsApp broadcast campaigns with dynamic contact variables, local SQLite persistence, and zero tracking.
 
+<p align="left">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.makhanchor.broadcastautomator%2522%252C%2522url%2522%253A%2522https%253A%2F%2Fgithub.com%2Fdilipkn007%2Fbroadcast_automator%2522%252C%2522author%2522%253A%2522dilipkn007%2522%252C%2522name%2522%253A%2522Broadcast%2520Automator%2522%252C%2522additionalSettings%2522%253A%257B%257D%257D">
+    <img src="assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="55">
+  </a>
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Android-green.svg)](https://developer.android.com/)
 [![GitHub Release](https://img.shields.io/github/v/release/dilipkn007/broadcast_automator?color=success&include_prereleases)](https://github.com/dilipkn007/broadcast_automator/releases/latest)
-[![Obtainium](https://img.shields.io/badge/Install%20via-Obtainium-purple.svg)](https://github.com/ImranR98/Obtainium)
 
 ---
 
 ## 🚀 Download & Installation
 
-### Option 1: Direct APK Download (Quickest)
-1. Download the latest **[BroadcastAutomator-v1.0.0.apk](https://github.com/dilipkn007/broadcast_automator/releases/latest)** from [GitHub Releases](https://github.com/dilipkn007/broadcast_automator/releases).
-2. Tap the downloaded file to install on your Android device (enable *"Install unknown apps"* if prompted).
+### Option 1: One-Click Install with Obtainium (Recommended)
+[Obtainium](https://github.com/ImranR98/Obtainium) allows you to install and automatically receive background updates directly from GitHub Releases without needing the Google Play Store.
 
-### Option 2: Automatic Updates with Obtainium (Recommended)
-[Obtainium](https://github.com/ImranR98/Obtainium) allows you to install and automatically receive background updates directly from GitHub Releases without needing the Google Play Store:
+Tap the button below on your Android device to add Broadcast Automator directly:
 
-1. Install **Obtainium** on your Android phone ([Obtainium GitHub](https://github.com/ImranR98/Obtainium/releases/latest)).
+<p align="left">
+  <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.makhanchor.broadcastautomator%2522%252C%2522url%2522%253A%2522https%253A%2F%2Fgithub.com%2Fdilipkn007%2Fbroadcast_automator%2522%252C%2522author%2522%253A%2522dilipkn007%2522%252C%2522name%2522%253A%2522Broadcast%2520Automator%2522%252C%2522additionalSettings%2522%253A%257B%257D%257D">
+    <img src="assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="50">
+  </a>
+</p>
+
+*Or manually in Obtainium:*
+1. Install **Obtainium** on your Android phone ([Obtainium Releases](https://github.com/ImranR98/Obtainium/releases/latest)).
 2. Open Obtainium and tap **"Add App"** (`+`).
 3. Paste the repository URL:
    ```text
    https://github.com/dilipkn007/broadcast_automator
    ```
 4. Tap **Add**. Obtainium will automatically fetch the latest release, install the app, and notify you whenever a new version is released!
+
+### Option 2: Direct APK Download
+1. Download the latest **[BroadcastAutomator-v1.0.0.apk](https://github.com/dilipkn007/broadcast_automator/releases/latest)** from [GitHub Releases](https://github.com/dilipkn007/broadcast_automator/releases).
+2. Tap the downloaded file to install on your Android device (enable *"Install unknown apps"* if prompted).
 
 ---
 
