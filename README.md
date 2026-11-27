@@ -54,6 +54,30 @@ Tap the button below on your Android device to add Broadcast Automator directly:
 
 ---
 
+## 💖 Support & Sponsor the Project
+
+Broadcast Automator is completely free, privacy-first, and open source. If this app saves you time or streamlines your communication, consider backing its ongoing development!
+
+<p align="left">
+  <a href="https://github.com/sponsors/dilipkn007">
+    <img src="https://img.shields.io/badge/Sponsor%20on-GitHub%20Sponsors-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white" alt="GitHub Sponsors" />
+  </a>
+  &nbsp;
+  <a href="https://buymeacoffee.com/dilipkn007">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me A Coffee" />
+  </a>
+  &nbsp;
+  <a href="https://patreon.com/dilipkn007">
+    <img src="https://img.shields.io/badge/Patreon-FF424D?style=for-the-badge&logo=patreon&logoColor=white" alt="Patreon" />
+  </a>
+  &nbsp;
+  <a href="https://opencollective.com/broadcast_automator">
+    <img src="https://img.shields.io/badge/Open%20Collective-7FADF2?style=for-the-badge&logo=open-collective&logoColor=white" alt="Open Collective" />
+  </a>
+</p>
+
+---
+
 ## 🛠️ Required Permissions
 
 To automate WhatsApp dispatches safely, the app requires:
