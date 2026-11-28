@@ -73,6 +73,31 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
     } catch (_) {}
   }
 
+  Future<void> _autoSaveDraft() async {
+    final campaignId = widget.campaignId;
+    if (campaignId == null || campaignId.isEmpty) return;
+    try {
+      final currentBody = _model.textFieldModel.inputTextController?.text ?? _model.messageBody;
+      await supabase.from(CampaignsRecord.tableName).update(createCampaignsRecordData(
+        messageBody: currentBody,
+        delaySeconds: _model.delaySeconds,
+        randomizeDelay: _model.randomizeDelay,
+        skipInvalid: _model.skipInvalid,
+        autoRetry: _model.autoRetry,
+      )).eq('id', campaignId);
+
+      if (_model.preSendDelaySeconds != null) {
+        await FFAppState().prefs.setInt('campaign_pre_send_delay_$campaignId', _model.preSendDelaySeconds!);
+      }
+      if (_model.autoPauseEnabled != null) {
+        await FFAppState().prefs.setBool('campaign_auto_pause_enabled_$campaignId', _model.autoPauseEnabled!);
+      }
+      if (_model.autoPauseMinutes != null) {
+        await FFAppState().prefs.setInt('campaign_auto_pause_minutes_$campaignId', _model.autoPauseMinutes!);
+      }
+    } catch (_) {}
+  }
+
   void _insertTemplateVariable(String variable) {
     final controller = _model.textFieldModel.inputTextController;
     if (controller == null) return;
@@ -242,6 +267,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
 
   @override
   void dispose() {
+    _autoSaveDraft();
     _model.dispose();
 
     super.dispose();
@@ -284,6 +310,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
 
         final broadcastDetailsCampaignsRecord = snapshot.data!;
         final isCompleted = broadcastDetailsCampaignsRecord.status.trim().toLowerCase() == 'completed';
+        final isPaused = broadcastDetailsCampaignsRecord.status.trim().toLowerCase() == 'paused';
 
         if (_model.messageBody == null) {
           _model.messageBody = broadcastDetailsCampaignsRecord.messageBody;
@@ -319,12 +346,17 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
           _model.autoPauseMinutesFocusNode = FocusNode();
         }
 
-        return GestureDetector(
-          onTap: () {
-            FocusScope.of(context).unfocus();
-            FocusManager.instance.primaryFocus?.unfocus();
+        return PopScope(
+          canPop: true,
+          onPopInvokedWithResult: (didPop, result) {
+            _autoSaveDraft();
           },
-          child: Scaffold(
+          child: GestureDetector(
+            onTap: () {
+              FocusScope.of(context).unfocus();
+              FocusManager.instance.primaryFocus?.unfocus();
+            },
+            child: Scaffold(
             key: scaffoldKey,
             backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
             body: Container(
@@ -390,7 +422,8 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                               size: 24.0,
                                             ),
                                             onPressed: () async {
-                                              context.pop();
+                                              await _autoSaveDraft();
+                                              if (mounted) context.pop();
                                             },
                                           ),
                                           Column(
@@ -677,6 +710,55 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                         const SizedBox(height: 2.0),
                                                         Text(
                                                           'This campaign has finished running and is locked as a permanent history record. Message and media cannot be edited. You can reuse its contacts for a new campaign below.',
+                                                          style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                            font: GoogleFonts.inter(),
+                                                            color: FlutterFlowTheme.of(context).secondaryText,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          if (isPaused)
+                                            Container(
+                                              width: double.infinity,
+                                              margin: const EdgeInsets.only(bottom: 16.0),
+                                              padding: const EdgeInsets.all(14.0),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0x1FFF9800),
+                                                borderRadius: BorderRadius.circular(12.0),
+                                                border: Border.all(
+                                                  color: const Color(0x66FF9800),
+                                                  width: 1.0,
+                                                ),
+                                              ),
+                                              child: Row(
+                                                crossAxisAlignment: CrossAxisAlignment.center,
+                                                children: [
+                                                  const Icon(
+                                                    Icons.pause_circle_filled_rounded,
+                                                    color: Color(0xFFFF9800),
+                                                    size: 24.0,
+                                                  ),
+                                                  const SizedBox(width: 12.0),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          'Broadcast Paused',
+                                                          style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                            font: GoogleFonts.plusJakartaSans(
+                                                              fontWeight: FontWeight.bold,
+                                                            ),
+                                                            color: const Color(0xFFFFB74D),
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 2.0),
+                                                        Text(
+                                                          'Sending was paused. Tap "Resume Broadcast" below to continue from contact #${(broadcastDetailsCampaignsRecord.currentIndex) + 1}.',
                                                           style: FlutterFlowTheme.of(context).labelSmall.override(
                                                             font: GoogleFonts.inter(),
                                                             color: FlutterFlowTheme.of(context).secondaryText,
@@ -2057,214 +2139,142 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                             ),
                                           ),
                                         ] else ...[
-                                        Expanded(
-                                          flex: 1,
-                                          child: InkWell(
-                                            splashColor: Colors.transparent,
-                                            focusColor: Colors.transparent,
-                                            hoverColor: Colors.transparent,
-                                            highlightColor: Colors.transparent,
-                                            onTap: () async {
-                                              if (widget!.campaignId == null ||
-                                                  widget!.campaignId == '') {
-                                                return;
-                                              }
-  
-                                              await supabase
-                                                  .from(CampaignsRecord.tableName)
-                                                  .update(createCampaignsRecordData(
-                                                    messageBody:
-                                                        _model.messageBody,
-                                                    delaySeconds:
-                                                        _model.delaySeconds,
-                                                    randomizeDelay:
-                                                        _model.randomizeDelay,
-                                                    skipInvalid:
-                                                        _model.skipInvalid,
-                                                    autoRetry: _model.autoRetry,
-                                                  ))
-                                                  .eq('id',
-                                                      broadcastDetailsCampaignsRecord
-                                                          .id);
-                                              context.pop();
-                                            },
-                                            child: wrapWithModel(
-                                              model: _model.buttonModel1,
-                                              updateCallback: () =>
-                                                  safeSetState(() {}),
-                                              child: ButtonWidget(
-                                                iconPresent: false,
-                                                iconEndPresent: false,
-                                                content: 'Save Draft',
-                                                variant: 'outline',
-                                                size: 'large',
-                                                fullWidth: false,
-                                                loading: false,
-                                                disabled: false,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          flex: 1,
-                                          child: InkWell(
-                                            splashColor: Colors.transparent,
-                                            focusColor: Colors.transparent,
-                                            hoverColor: Colors.transparent,
-                                            highlightColor: Colors.transparent,
-                                            onTap: () async {
-                                              if (widget!.campaignId == null ||
-                                                  widget!.campaignId == '') {
-                                                return;
-                                              }
-  
-                                              await supabase
-                                                  .from(CampaignsRecord.tableName)
-                                                  .update(createCampaignsRecordData(
-                                                    messageBody:
-                                                        _model.messageBody,
-                                                    delaySeconds:
-                                                        _model.delaySeconds,
-                                                    randomizeDelay:
-                                                        _model.randomizeDelay,
-                                                    skipInvalid:
-                                                        _model.skipInvalid,
-                                                    autoRetry: _model.autoRetry,
-                                                    status: 'Sending',
-                                                    currentIndex: 0,
-                                                  ))
-                                                  .eq('id',
-                                                      broadcastDetailsCampaignsRecord
-                                                          .id);
-  
-                                              final contacts =
-                                                  await queryContactsRecordOnce(
-                                                queryBuilder: (q) => q.where(
-                                                    'campaign_id',
-                                                    isEqualTo:
-                                                        widget!.campaignId),
-                                              );
-  
-                                              await supabase
-                                                  .from(ContactsRecord.tableName)
-                                                  .update({'status': 'Pending'})
-                                                  .eq('campaign_id',
-                                                      widget!.campaignId!);
-                                                final attachment =
-                                                   _attachments.isNotEmpty
-                                                       ? _attachments.first
-                                                       : null;
-                                               await NativeBridge.saveJob(
-                                                 campaignId: widget!.campaignId!,
-                                                 campaignName:
-                                                     broadcastDetailsCampaignsRecord
-                                                         .name,
-                                                 message:
-                                                     _model.messageBody ?? '',
-                                                 delaySeconds:
-                                                     _model.delaySeconds ?? 6,
-                                                 preSendDelaySeconds:
-                                                     _model.preSendDelaySeconds ?? 2,
-                                                 randomizeDelay:
-                                                     _model.randomizeDelay ?? true,
-                                                 autoRetry:
-                                                     _model.autoRetry ?? false,
-                                                 skipInvalid:
-                                                     _model.skipInvalid ?? true,
-                                                 contacts: contacts
-                                                     .map((c) => {
-                                                           'id': c.id,
-                                                           'name': c.name,
-                                                           'phone': c.phone,
-                                                           'extraFields': c.extraFields,
-                                                         })
-                                                     .toList(),
-                                                 attachmentPath:
-                                                     attachment?['path'],
-                                                 attachmentMime:
-                                                     attachment?['mimeType'],
-                                                 attachments: _attachments
-                                                     .map((a) => {
-                                                           'path': a['path'] ?? '',
-                                                           'mimeType': a['mimeType'] ?? '',
-                                                           'name': a['name'] ?? '',
-                                                         })
-                                                     .where((a) => (a['path'] ?? '').isNotEmpty)
-                                                     .toList(),
-                                                 autoPauseMinutes: (_model.autoPauseEnabled ?? false)
-                                                     ? (_model.autoPauseMinutes ?? 10)
-                                                     : 0,
-                                               );
-
-                                               final started = await NativeBridge
-                                                   .startBroadcast(
-                                                 widget!.campaignId!,
-                                               );
-                                               if (!(started['started'] == true)) {
-                                                if (started[
-                                                        'accessibilityEnabled'] ==
-                                                    false) {
-                                                  await NativeBridge
-                                                      .openAccessibilitySettings();
-                                                  showSnackbar(
-                                                    context,
-                                                    'Enable the "WhatsApp Broadcast Automator" accessibility service, then tap Start Broadcast again.',
-                                                  );
-                                                } else if (started[
-                                                        'overlayPermission'] ==
-                                                    false) {
-                                                  await NativeBridge
-                                                      .openOverlaySettings();
-                                                  showSnackbar(
-                                                    context,
-                                                    'Allow "Display over other apps" so the progress overlay can appear on WhatsApp.',
-                                                  );
-                                                } else {
-                                                  showSnackbar(
-                                                    context,
-                                                    'Could not start broadcast: ${started['error']}',
-                                                  );
+                                          Expanded(
+                                            flex: 1,
+                                            child: InkWell(
+                                              splashColor: Colors.transparent,
+                                              focusColor: Colors.transparent,
+                                              hoverColor: Colors.transparent,
+                                              highlightColor: Colors.transparent,
+                                              onTap: () async {
+                                                if (widget!.campaignId == null ||
+                                                    widget!.campaignId == '') {
+                                                  return;
                                                 }
-                                                return;
-                                              }
-  
-                                              if (!mounted) return;
-                                              context.goNamed(
-                                                SendingProgressOverlayWidget
-                                                    .routeName,
-                                                queryParameters: {
-                                                  'campaignId': serializeParam(
-                                                    widget!.campaignId,
-                                                    ParamType.String,
+
+                                                await _autoSaveDraft();
+
+                                                await supabase
+                                                    .from(CampaignsRecord.tableName)
+                                                    .update(createCampaignsRecordData(
+                                                      messageBody: _model.messageBody,
+                                                      delaySeconds: _model.delaySeconds,
+                                                      randomizeDelay: _model.randomizeDelay,
+                                                      skipInvalid: _model.skipInvalid,
+                                                      autoRetry: _model.autoRetry,
+                                                      status: 'Sending',
+                                                      currentIndex: isPaused ? broadcastDetailsCampaignsRecord.currentIndex : 0,
+                                                    ))
+                                                    .eq('id', broadcastDetailsCampaignsRecord.id);
+
+                                                if (!isPaused) {
+                                                  await supabase
+                                                      .from(ContactsRecord.tableName)
+                                                      .update({'status': 'Pending'})
+                                                      .eq('campaign_id', widget!.campaignId!);
+                                                }
+
+                                                final contacts = await queryContactsRecordOnce(
+                                                  queryBuilder: (q) => q.where(
+                                                      'campaign_id',
+                                                      isEqualTo: widget!.campaignId),
+                                                );
+
+                                                final attachment = _attachments.isNotEmpty
+                                                    ? _attachments.first
+                                                    : null;
+
+                                                await NativeBridge.saveJob(
+                                                  campaignId: widget!.campaignId!,
+                                                  campaignName: broadcastDetailsCampaignsRecord.name,
+                                                  message: _model.messageBody ?? '',
+                                                  delaySeconds: _model.delaySeconds ?? 6,
+                                                  preSendDelaySeconds: _model.preSendDelaySeconds ?? 2,
+                                                  randomizeDelay: _model.randomizeDelay ?? true,
+                                                  autoRetry: _model.autoRetry ?? false,
+                                                  skipInvalid: _model.skipInvalid ?? true,
+                                                  contacts: contacts
+                                                      .map((c) => {
+                                                            'id': c.id,
+                                                            'name': c.name,
+                                                            'phone': c.phone,
+                                                            'extraFields': c.extraFields,
+                                                          })
+                                                      .toList(),
+                                                  attachmentPath: attachment?['path'],
+                                                  attachmentMime: attachment?['mimeType'],
+                                                  attachments: _attachments
+                                                      .map((a) => {
+                                                            'path': a['path'] ?? '',
+                                                            'mimeType': a['mimeType'] ?? '',
+                                                            'name': a['name'] ?? '',
+                                                          })
+                                                      .where((a) => (a['path'] ?? '').isNotEmpty)
+                                                      .toList(),
+                                                  autoPauseMinutes: (_model.autoPauseEnabled ?? false)
+                                                      ? (_model.autoPauseMinutes ?? 10)
+                                                      : 0,
+                                                );
+
+                                                final broadcastStatus = await NativeBridge.getBroadcastStatus();
+                                                final isServiceActive = broadcastStatus['running'] == true &&
+                                                    broadcastStatus['paused'] == true &&
+                                                    broadcastStatus['campaignId'] == widget!.campaignId;
+
+                                                if (isPaused && isServiceActive) {
+                                                  await NativeBridge.resumeBroadcast();
+                                                  return;
+                                                }
+
+                                                final started = await NativeBridge.startBroadcast(
+                                                  widget!.campaignId!,
+                                                );
+                                                if (!(started['started'] == true)) {
+                                                  if (started['accessibilityEnabled'] == false) {
+                                                    await NativeBridge.openAccessibilitySettings();
+                                                    showSnackbar(
+                                                      context,
+                                                      'Enable the "WhatsApp Broadcast Automator" accessibility service, then tap ${isPaused ? "Resume" : "Start"} Broadcast again.',
+                                                    );
+                                                  } else if (started['overlayPermission'] == false) {
+                                                    await NativeBridge.openOverlaySettings();
+                                                    showSnackbar(
+                                                      context,
+                                                      'Allow "Display over other apps" so the progress overlay can appear on WhatsApp.',
+                                                    );
+                                                  } else {
+                                                    showSnackbar(
+                                                      context,
+                                                      'Could not start broadcast: ${started['error']}',
+                                                    );
+                                                  }
+                                                  return;
+                                                }
+                                              },
+                                              child: wrapWithModel(
+                                                model: _model.buttonModel2,
+                                                updateCallback: () => safeSetState(() {}),
+                                                child: ButtonWidget(
+                                                  icon: Icon(
+                                                    isPaused
+                                                        ? Icons.play_arrow_rounded
+                                                        : Icons.rocket_launch_rounded,
+                                                    color: FlutterFlowTheme.of(context).primaryText,
+                                                    size: 24.0,
                                                   ),
-                                                }.withoutNulls,
-                                              );
-                                            },
-                                            child: wrapWithModel(
-                                              model: _model.buttonModel2,
-                                              updateCallback: () =>
-                                                  safeSetState(() {}),
-                                              child: ButtonWidget(
-                                                icon: Icon(
-                                                  Icons.rocket_launch_rounded,
-                                                  color:
-                                                      FlutterFlowTheme.of(context)
-                                                          .primaryText,
-                                                  size: 24.0,
+                                                  iconPresent: true,
+                                                  iconEndPresent: false,
+                                                  content: isPaused ? 'Resume Broadcast' : 'Start Broadcast',
+                                                  variant: 'primary',
+                                                  size: 'large',
+                                                  fullWidth: true,
+                                                  loading: false,
+                                                  disabled: false,
                                                 ),
-                                                iconPresent: true,
-                                                iconEndPresent: false,
-                                                content: 'Start Broadcast',
-                                                variant: 'primary',
-                                                size: 'large',
-                                                fullWidth: false,
-                                                loading: false,
-                                                disabled: false,
                                               ),
                                             ),
                                           ),
-                                        ),
-                                        ],
+                                        ]
                                       ].divide(SizedBox(width: 16.0)),
                                     ),
                                   ),
@@ -2281,6 +2291,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
               ),
             ),
           ),
+        ),
         );
       },
     );

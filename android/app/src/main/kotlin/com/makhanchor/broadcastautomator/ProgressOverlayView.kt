@@ -45,6 +45,7 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
     private val timeRemainingView: TextView
 
     private val toggleButton: TextView
+    private val pauseBroadcastButton: TextView
     private val stopButton: TextView
 
     private var windowManager: WindowManager? = null
@@ -270,7 +271,7 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
         timeRow.addView(timeRemainingView)
         collapsibleContent.addView(timeRow)
 
-        // Control Buttons Row
+        // Control Buttons Row (Pause Sending & Pause Broadcast)
         val buttonRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -279,13 +280,28 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
             }
         }
         toggleButton = createPillButton("Pause", 0xFF2D323E.toInt(), 0xFF3F4554.toInt(), Color.WHITE)
-        stopButton = createPillButton("Stop", 0xFF3D1B1B.toInt(), 0xFF6E2424.toInt(), 0xFFFF6B6B.toInt())
+        pauseBroadcastButton = createPillButton("Pause Broadcast", 0xFF382E1E.toInt(), 0xFF5C4520.toInt(), 0xFFFFB74D.toInt())
 
         buttonRow.addView(toggleButton, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        buttonRow.addView(stopButton, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-            marginStart = dp(12)
+        buttonRow.addView(pauseBroadcastButton, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.2f).apply {
+            marginStart = dp(10)
         })
         collapsibleContent.addView(buttonRow)
+
+        // Stop Button Row (Subtle, full width below)
+        val stopRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8)
+            }
+        }
+        stopButton = createPillButton("Stop Broadcast", 0xFF261414.toInt(), 0xFF421C1C.toInt(), 0xFFFF6B6B.toInt()).apply {
+            textSize = 12f
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+        }
+        stopRow.addView(stopButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        collapsibleContent.addView(stopRow)
 
         addView(collapsibleContent)
 
@@ -310,6 +326,9 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
         // Click listeners & Touch listeners
         toggleButton.setOnClickListener {
             sendAction(WhatsAppAutomationService.ACTION_PAUSE_RESUME)
+        }
+        pauseBroadcastButton.setOnClickListener {
+            sendAction(WhatsAppAutomationService.ACTION_PAUSE_BROADCAST)
         }
         stopButton.setOnClickListener {
             sendAction(WhatsAppAutomationService.ACTION_STOP)
@@ -489,14 +508,18 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
         if (state.paused) {
             statusDotView.background = roundedBox(0xFFFF9800.toInt(), 0, 0f, 999f)
             statusTextView.text = "Paused"
-            progressLabelView.text = "Broadcast Paused"
+            progressLabelView.text = "Messages Paused"
             toggleButton.text = "Resume"
+            toggleButton.background = roundedBox(0xFF1B4D3E.toInt(), 0xFF25D366.toInt(), 1f, 12f)
+            toggleButton.setTextColor(Color.WHITE)
         } else {
             statusDotView.background = roundedBox(0xFF25D366.toInt(), 0, 0f, 999f)
             val currentStatus = state.statusText ?: "Sending in progress..."
             statusTextView.text = currentStatus
             progressLabelView.text = currentStatus
             toggleButton.text = "Pause"
+            toggleButton.background = roundedBox(0xFF2D323E.toInt(), 0xFF3F4554.toInt(), 1f, 12f)
+            toggleButton.setTextColor(Color.WHITE)
         }
 
         val name = state.currentContactName.ifEmpty { state.currentContactPhone }

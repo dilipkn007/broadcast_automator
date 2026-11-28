@@ -28,6 +28,10 @@ class NativeBridge {
     await _channel.invokeMethod('pauseBroadcast');
   }
 
+  static Future<void> pauseBroadcastAndExit() async {
+    await _channel.invokeMethod('pauseBroadcastAndExit');
+  }
+
   static Future<void> resumeBroadcast() async {
     await _channel.invokeMethod('resumeBroadcast');
   }

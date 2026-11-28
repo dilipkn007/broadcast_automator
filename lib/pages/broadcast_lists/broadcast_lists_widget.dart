@@ -665,9 +665,11 @@ class _BroadcastListsWidgetState extends State<BroadcastListsWidget>
                                                                   ? FlutterFlowTheme.of(context).success
                                                                   : (itemItem.status == 'Sending'
                                                                       ? FlutterFlowTheme.of(context).warning
-                                                                      : (itemItem.status == 'Completed'
-                                                                          ? FlutterFlowTheme.of(context).info
-                                                                          : FlutterFlowTheme.of(context).error)),
+                                                                      : (itemItem.status == 'Paused'
+                                                                          ? const Color(0xFFFF9800)
+                                                                          : (itemItem.status == 'Completed'
+                                                                              ? FlutterFlowTheme.of(context).info
+                                                                              : FlutterFlowTheme.of(context).error))),
                                                             ),
                                                           ),
                                                         );

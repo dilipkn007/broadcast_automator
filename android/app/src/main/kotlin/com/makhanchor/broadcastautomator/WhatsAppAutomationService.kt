@@ -35,6 +35,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         const val ACTION_PAUSE = "com.makhanchor.broadcastautomator.action.PAUSE"
         const val ACTION_RESUME = "com.makhanchor.broadcastautomator.action.RESUME"
         const val ACTION_PAUSE_RESUME = "com.makhanchor.broadcastautomator.action.PAUSE_RESUME"
+        const val ACTION_PAUSE_BROADCAST = "com.makhanchor.broadcastautomator.action.PAUSE_BROADCAST"
 
         private const val POLL_MS = 400L
         private const val SETTLE_MS = 1200L
@@ -175,6 +176,7 @@ class WhatsAppAutomationService : AccessibilityService() {
                 ACTION_PAUSE -> pauseJob()
                 ACTION_RESUME -> resumeJob()
                 ACTION_PAUSE_RESUME -> if (paused) resumeJob() else pauseJob()
+                ACTION_PAUSE_BROADCAST -> pauseBroadcastAndExit()
             }
         }
     }
@@ -190,6 +192,7 @@ class WhatsAppAutomationService : AccessibilityService() {
             addAction(ACTION_PAUSE)
             addAction(ACTION_RESUME)
             addAction(ACTION_PAUSE_RESUME)
+            addAction(ACTION_PAUSE_BROADCAST)
         }
         registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
@@ -262,14 +265,23 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (running) return
         if (loaded.contacts.isEmpty()) return
 
+        val statusObj = BroadcastStore.getStatus(this)
+        val savedCampaignId = statusObj.optString("campaignId", "")
+        val savedIndex = statusObj.optInt("currentIndex", 0)
+        val resumeIndex = if (savedCampaignId == loaded.campaignId && savedIndex > 0) {
+            savedIndex
+        } else {
+            0
+        }
+
         job = loaded
         running = true
         paused = false
         stopped = false
-        currentIndex = 0
-        sent = 0
-        failed = 0
-        skipped = 0
+        currentIndex = resumeIndex
+        sent = if (resumeIndex > 0) statusObj.optInt("sent", 0) else 0
+        failed = if (resumeIndex > 0) statusObj.optInt("failed", 0) else 0
+        skipped = if (resumeIndex > 0) statusObj.optInt("skipped", 0) else 0
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
         customStatusText = null
@@ -277,12 +289,14 @@ class WhatsAppAutomationService : AccessibilityService() {
         isProcessing = false
         executionToken++
 
-        BroadcastStore.setStartTime(this, System.currentTimeMillis())
-        loaded.contacts.forEach { c ->
-            BroadcastStore.recordContactResult(this, c.id, c.name, c.phone, "Pending")
+        if (resumeIndex == 0) {
+            BroadcastStore.setStartTime(this, System.currentTimeMillis())
+            loaded.contacts.forEach { c ->
+                BroadcastStore.recordContactResult(this, c.id, c.name, c.phone, "Pending")
+            }
         }
 
-        updateCampaign(mapOf("status" to "Sending", "current_index" to 0))
+        updateCampaign(mapOf("status" to "Sending", "current_index" to currentIndex))
         pushStatus()
         showOverlay()
         processNext()
@@ -317,6 +331,14 @@ class WhatsAppAutomationService : AccessibilityService() {
         updateOverlay()
     }
 
+    private fun pauseBroadcastAndExit() {
+        if (!running) return
+        pauseJob("Broadcast Paused")
+        updateCampaign(mapOf("status" to "Paused", "current_index" to currentIndex))
+        hideOverlay()
+        relaunchApp()
+    }
+
     private fun resumeJob() {
         if (!running || !paused) return
         paused = false
@@ -330,7 +352,9 @@ class WhatsAppAutomationService : AccessibilityService() {
         val token = executionToken
 
         pushStatus()
+        showOverlay()
         updateOverlay()
+        updateCampaign(mapOf("status" to "Sending", "current_index" to currentIndex))
 
         val stepBeforePause = currentStep
         if (stepBeforePause == JobStep.WAITING_DELAY) {
@@ -874,12 +898,16 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun relaunchApp() {
         try {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP,
-            )
+            val intent = Intent(this, MainActivity::class.java).apply {
+                job?.campaignId?.let { cid ->
+                    putExtra("campaignId", cid)
+                }
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                )
+            }
             startActivity(intent)
         } catch (_: Exception) {
         }

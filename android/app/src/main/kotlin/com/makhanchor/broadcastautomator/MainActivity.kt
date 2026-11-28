@@ -46,6 +46,9 @@ class MainActivity : FlutterActivity() {
                     "pauseBroadcast" -> sendControlAction(
                         WhatsAppAutomationService.ACTION_PAUSE, result,
                     )
+                    "pauseBroadcastAndExit" -> sendControlAction(
+                        WhatsAppAutomationService.ACTION_PAUSE_BROADCAST, result,
+                    )
                     "resumeBroadcast" -> sendControlAction(
                         WhatsAppAutomationService.ACTION_RESUME, result,
                     )
