@@ -7,6 +7,7 @@ import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -126,6 +127,14 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private enum class JobStep {
+        IDLE,
+        WAITING_DELAY,
+        WAITING_SEND_BUTTON,
+        PRE_SEND_COUNTDOWN,
+        CONFIRMING_SEND,
+    }
+
     private var job: WaJob? = null
     private var running = false
     private var paused = false
@@ -138,7 +147,25 @@ class WhatsAppAutomationService : AccessibilityService() {
     private var lastResumeTimeMs = 0L
     private var customStatusText: String? = null
 
+    private var currentStep: JobStep = JobStep.IDLE
+    private var isProcessing = false
+    private var executionToken: Long = 0L
+
     private var overlayView: ProgressOverlayView? = null
+
+    private fun isPhoneCallActive(): Boolean {
+        return try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+            when (am.mode) {
+                AudioManager.MODE_IN_CALL,
+                AudioManager.MODE_IN_COMMUNICATION,
+                AudioManager.MODE_RINGTONE -> true
+                else -> false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -245,6 +272,10 @@ class WhatsAppAutomationService : AccessibilityService() {
         skipped = 0
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
+        customStatusText = null
+        currentStep = JobStep.IDLE
+        isProcessing = false
+        executionToken++
 
         BroadcastStore.setStartTime(this, System.currentTimeMillis())
         loaded.contacts.forEach { c ->
@@ -257,11 +288,33 @@ class WhatsAppAutomationService : AccessibilityService() {
         processNext()
     }
 
-    private fun pauseJob() {
+    private fun pauseJob(reason: String? = null) {
         if (!running || paused) return
         paused = true
         elapsedRunTimeMs += System.currentTimeMillis() - lastResumeTimeMs
+
+        // Cancel any pending callbacks and bump execution token to drop in-flight tasks
+        executionToken++
+        mainHandler.removeCallbacksAndMessages(null)
+        isProcessing = false
+
+        if (!reason.isNullOrEmpty()) {
+            customStatusText = reason
+        }
+
+        // If the user paused right after WhatsApp's send button was clicked, finalize this contact as Sent
+        // so it won't be duplicated upon resume
+        val j = job
+        if (currentStep == JobStep.CONFIRMING_SEND && j != null && currentIndex < j.contacts.size) {
+            val contact = j.contacts[currentIndex]
+            sent++
+            markContact(contact, "Sent")
+            currentIndex++
+            currentStep = JobStep.WAITING_DELAY
+        }
+
         pushStatus()
+        updateOverlay()
     }
 
     private fun resumeJob() {
@@ -269,14 +322,45 @@ class WhatsAppAutomationService : AccessibilityService() {
         paused = false
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
+        customStatusText = null
+        isProcessing = false
+
+        // Generate new token for the resumed session
+        executionToken++
+        val token = executionToken
+
         pushStatus()
-        mainHandler.post { processNext() }
+        updateOverlay()
+
+        val stepBeforePause = currentStep
+        if (stepBeforePause == JobStep.WAITING_DELAY) {
+            // We were waiting between contacts (or finalized the previous contact upon pause).
+            // Give a 1.5s grace settle window before proceeding to the next contact.
+            mainHandler.postDelayed({
+                if (token == executionToken && running && !paused && !stopped) {
+                    processNext()
+                }
+            }, 1500L)
+        } else {
+            // We were in the middle of preparing or waiting for a send that was interrupted.
+            // Cleanly restart from currentIndex:
+            currentStep = JobStep.IDLE
+            mainHandler.post {
+                if (token == executionToken && running && !paused && !stopped) {
+                    processNext()
+                }
+            }
+        }
     }
 
     private fun stopJob(quiet: Boolean) {
         if (!running) return
         running = false
         stopped = true
+        isProcessing = false
+        executionToken++
+        mainHandler.removeCallbacksAndMessages(null)
+
         BroadcastStore.setEndTime(this, System.currentTimeMillis())
         job?.let {
             updateCampaign(mapOf("status" to "Stopped"))
@@ -295,6 +379,10 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun finishJob() {
         running = false
+        isProcessing = false
+        executionToken++
+        mainHandler.removeCallbacksAndMessages(null)
+
         BroadcastStore.setEndTime(this, System.currentTimeMillis())
         val j = job
         if (j != null) {
@@ -312,40 +400,53 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun processNext() {
         val j = job ?: return
-        if (!running || stopped) return
-        if (paused) {
-            updateOverlay()
-            return
-        }
+        if (!running || stopped || paused) return
+        if (isProcessing) return
 
         // Auto pause check
         if (j.autoPauseMinutes > 0) {
             val activeTimeMs = elapsedRunTimeMs + (System.currentTimeMillis() - lastResumeTimeMs)
             if (activeTimeMs >= j.autoPauseMinutes * 60 * 1000) {
-                pauseJob()
-                updateOverlay()
+                pauseJob("Auto-paused (${j.autoPauseMinutes}m)")
                 return
             }
+        }
+
+        // Phone call check
+        if (isPhoneCallActive()) {
+            pauseJob("Paused: Phone call active")
+            return
         }
 
         if (currentIndex >= j.contacts.size) {
             finishJob()
             return
         }
+
+        isProcessing = true
+        currentStep = JobStep.WAITING_SEND_BUTTON
+        executionToken++
+        val token = executionToken
+
         updateOverlay()
         val contact = j.contacts[currentIndex]
-        launchChat(j, contact, attempt = 1)
+        launchChat(j, contact, attempt = 1, token = token)
     }
 
-    private fun launchChat(j: WaJob, contact: WaContact, attempt: Int) {
+    private fun launchChat(j: WaJob, contact: WaContact, attempt: Int, token: Long) {
+        if (token != executionToken || !running || stopped || paused) {
+            isProcessing = false
+            return
+        }
+
         val pkg = whatsAppPackage()
         if (pkg == null) {
-            handleFailure(contact)
+            handleFailure(contact, token)
             return
         }
         val phone = normalizePhone(contact.phone)
         if (phone.isEmpty()) {
-            handleInvalid(contact)
+            handleInvalid(contact, token)
             return
         }
 
@@ -420,11 +521,15 @@ class WhatsAppAutomationService : AccessibilityService() {
         try {
             startActivity(intent)
         } catch (_: Exception) {
-            handleFailure(contact)
+            handleFailure(contact, token)
             return
         }
         mainHandler.postDelayed(
-            { waitForSendButton(j, contact, attempt, 0L) },
+            {
+                if (token == executionToken && running && !stopped && !paused) {
+                    waitForSendButton(j, contact, attempt, 0L, token)
+                }
+            },
             SETTLE_MS,
         )
     }
@@ -434,26 +539,45 @@ class WhatsAppAutomationService : AccessibilityService() {
         contact: WaContact,
         attempt: Int,
         elapsed: Long,
+        token: Long,
     ) {
-        if (!running || stopped) return
-        if (paused) {
-            mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, elapsed) },
-                POLL_MS,
-            )
+        if (token != executionToken || !running || stopped || paused) return
+
+        if (isPhoneCallActive()) {
+            pauseJob("Paused: Phone call active")
             return
         }
+
         val root = rootInActiveWindow ?: run {
             mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, elapsed + POLL_MS) },
+                {
+                    if (token == executionToken && running && !stopped && !paused) {
+                        waitForSendButton(j, contact, attempt, elapsed + POLL_MS, token)
+                    }
+                },
                 POLL_MS,
             )
             return
         }
-        if (!isWhatsAppWindow(root.packageName?.toString())) {
+
+        val rootPkg = root.packageName?.toString() ?: ""
+        if (!isWhatsAppWindow(rootPkg)) {
+            val isCallUi = rootPkg.contains("dialer", ignoreCase = true) ||
+                           rootPkg.contains("incall", ignoreCase = true) ||
+                           rootPkg.contains("telecom", ignoreCase = true) ||
+                           rootPkg.contains("phone", ignoreCase = true)
+            if (isCallUi) {
+                pauseJob("Paused: Phone call active")
+                return
+            }
+
             // Still on our app (or another window) while WhatsApp loads.
             mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, elapsed + POLL_MS) },
+                {
+                    if (token == executionToken && running && !stopped && !paused) {
+                        waitForSendButton(j, contact, attempt, elapsed + POLL_MS, token)
+                    }
+                },
                 POLL_MS,
             )
             return
@@ -461,7 +585,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
         // 1. Check for modal error dialogs (e.g. "isn't on WhatsApp", "invalid number")
         if (detectAndDismissWhatsAppDialog(root)) {
-            handleInvalid(contact)
+            handleInvalid(contact, token)
             return
         }
 
@@ -479,9 +603,10 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (send != null) {
             val preSendDelay = j.preSendDelaySeconds
             if (preSendDelay > 0) {
-                startPreSendCountdown(j, contact, attempt, preSendDelay)
+                currentStep = JobStep.PRE_SEND_COUNTDOWN
+                startPreSendCountdown(j, contact, attempt, preSendDelay, token)
             } else {
-                executeSendClick(j, contact, attempt)
+                executeSendClick(j, contact, attempt, token)
             }
             return
         }
@@ -493,10 +618,14 @@ class WhatsAppAutomationService : AccessibilityService() {
         }
 
         if (elapsed >= SEND_TIMEOUT_MS) {
-            retryOrFail(j, contact, attempt)
+            retryOrFail(j, contact, attempt, token)
         } else {
             mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, elapsed + POLL_MS) },
+                {
+                    if (token == executionToken && running && !stopped && !paused) {
+                        waitForSendButton(j, contact, attempt, elapsed + POLL_MS, token)
+                    }
+                },
                 POLL_MS,
             )
         }
@@ -507,19 +636,19 @@ class WhatsAppAutomationService : AccessibilityService() {
         contact: WaContact,
         attempt: Int,
         secondsRemaining: Int,
+        token: Long,
     ) {
-        if (!running || stopped) return
-        if (paused) {
-            mainHandler.postDelayed(
-                { startPreSendCountdown(j, contact, attempt, secondsRemaining) },
-                POLL_MS,
-            )
+        if (token != executionToken || !running || stopped || paused) return
+
+        if (isPhoneCallActive()) {
+            pauseJob("Paused: Phone call active")
             return
         }
+
         if (secondsRemaining <= 0) {
             customStatusText = null
             updateOverlay()
-            executeSendClick(j, contact, attempt)
+            executeSendClick(j, contact, attempt, token)
             return
         }
 
@@ -527,7 +656,11 @@ class WhatsAppAutomationService : AccessibilityService() {
         updateOverlay()
 
         mainHandler.postDelayed(
-            { startPreSendCountdown(j, contact, attempt, secondsRemaining - 1) },
+            {
+                if (token == executionToken && running && !stopped && !paused) {
+                    startPreSendCountdown(j, contact, attempt, secondsRemaining - 1, token)
+                }
+            },
             1000L,
         )
     }
@@ -536,15 +669,15 @@ class WhatsAppAutomationService : AccessibilityService() {
         j: WaJob,
         contact: WaContact,
         attempt: Int,
+        token: Long,
     ) {
-        if (!running || stopped) return
-        if (paused) {
-            mainHandler.postDelayed(
-                { executeSendClick(j, contact, attempt) },
-                POLL_MS,
-            )
+        if (token != executionToken || !running || stopped || paused) return
+
+        if (isPhoneCallActive()) {
+            pauseJob("Paused: Phone call active")
             return
         }
+
         customStatusText = null
         val root = rootInActiveWindow
         val send = if (root != null && isWhatsAppWindow(root.packageName?.toString())) {
@@ -556,35 +689,46 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (send != null) {
             val clicked = performClickOnNearestClickable(send)
             if (!clicked) {
-                retryOrFail(j, contact, attempt)
+                retryOrFail(j, contact, attempt, token)
                 return
             }
+            currentStep = JobStep.CONFIRMING_SEND
             mainHandler.postDelayed(
                 {
-                    if (!running || stopped) return@postDelayed
-                    markSent(contact)
+                    if (token == executionToken && running && !stopped) {
+                        markSent(contact)
+                    }
                 },
                 CONFIRM_MS,
             )
         } else {
             mainHandler.postDelayed(
-                { waitForSendButton(j, contact, attempt, 0L) },
+                {
+                    if (token == executionToken && running && !stopped && !paused) {
+                        waitForSendButton(j, contact, attempt, 0L, token)
+                    }
+                },
                 POLL_MS,
             )
         }
     }
 
-    private fun retryOrFail(j: WaJob, contact: WaContact, attempt: Int) {
+    private fun retryOrFail(j: WaJob, contact: WaContact, attempt: Int, token: Long) {
+        if (token != executionToken || !running || stopped || paused) return
         if (j.autoRetry && attempt <= 1) {
-            launchChat(j, contact, attempt + 1)
+            launchChat(j, contact, attempt + 1, token)
         } else {
-            handleFailure(contact)
+            handleFailure(contact, token)
         }
     }
 
-    private fun handleInvalid(contact: WaContact) {
+    private fun handleInvalid(contact: WaContact, token: Long) {
+        if (token != executionToken || !running || stopped) return
         val j = job ?: return
         customStatusText = null
+        isProcessing = false
+        currentStep = JobStep.WAITING_DELAY
+
         if (j.skipInvalid) {
             skipped++
             markContact(contact, "Skipped")
@@ -594,36 +738,65 @@ class WhatsAppAutomationService : AccessibilityService() {
         }
         currentIndex++
         pushStatus()
-        mainHandler.postDelayed({ processNext() }, DELAY_BETWEEN_CONTACTS_MS)
+
+        executionToken++
+        val nextToken = executionToken
+        mainHandler.postDelayed({
+            if (nextToken == executionToken && running && !stopped && !paused) {
+                processNext()
+            }
+        }, DELAY_BETWEEN_CONTACTS_MS)
     }
 
-    private fun handleFailure(contact: WaContact) {
-        if (!running || stopped) return
+    private fun handleFailure(contact: WaContact, token: Long) {
+        if (token != executionToken || !running || stopped) return
         customStatusText = null
+        isProcessing = false
+        currentStep = JobStep.WAITING_DELAY
+
         failed++
         markContact(contact, "Failed")
         currentIndex++
         pushStatus()
-        mainHandler.postDelayed({ processNext() }, DELAY_BETWEEN_CONTACTS_MS)
+
+        executionToken++
+        val nextToken = executionToken
+        mainHandler.postDelayed({
+            if (nextToken == executionToken && running && !stopped && !paused) {
+                processNext()
+            }
+        }, DELAY_BETWEEN_CONTACTS_MS)
     }
 
     private fun markSent(contact: WaContact) {
         if (!running || stopped) return
         customStatusText = null
+        isProcessing = false
+        currentStep = JobStep.WAITING_DELAY
+
         sent++
         markContact(contact, "Sent")
         currentIndex++
         pushStatus()
+
         val j = job
-        val base = j?.delaySeconds?.times(1000) ?: 6000
+        val base = (j?.delaySeconds ?: 6) * 1000L
         val extra = if (j?.randomizeDelay == true) {
-            (0..6000).random() - 3000
+            ((0..6000).random() - 3000).toLong()
         } else {
-            0
+            0L
         }
+        val totalDelay = (base + extra).coerceAtLeast(1500L)
+
+        executionToken++
+        val nextToken = executionToken
         mainHandler.postDelayed(
-            { processNext() },
-            (base + extra).coerceAtLeast(1500).toLong(),
+            {
+                if (nextToken == executionToken && running && !stopped && !paused) {
+                    processNext()
+                }
+            },
+            totalDelay,
         )
     }
 
