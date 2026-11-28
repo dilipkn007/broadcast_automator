@@ -37,6 +37,20 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
   TextEditingController? autoPauseMinutesTextController;
   FocusNode? autoPauseMinutesFocusNode;
 
+  bool? pauseAfterMessagesEnabled;
+
+  int? pauseAfterMessages;
+
+  TextEditingController? pauseAfterMessagesTextController;
+  FocusNode? pauseAfterMessagesFocusNode;
+
+  bool? autoResumeEnabled;
+
+  int? autoResumeMinutes;
+
+  TextEditingController? autoResumeMinutesTextController;
+  FocusNode? autoResumeMinutesFocusNode;
+
   ///  State fields for stateful widgets in this page.
 
   // Model for TextField.
@@ -51,6 +65,8 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
   late SwitchComponentModel switchModel2;
   // Model for Switch.
   late SwitchComponentModel switchModelAutoPause;
+  late SwitchComponentModel switchModelPauseMessages;
+  late SwitchComponentModel switchModelAutoResume;
   // Model for Button.
   late ButtonModel buttonModel1;
   // Model for Button.
@@ -64,6 +80,8 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
     switchModel1 = createModel(context, () => SwitchComponentModel());
     switchModel2 = createModel(context, () => SwitchComponentModel());
     switchModelAutoPause = createModel(context, () => SwitchComponentModel());
+    switchModelPauseMessages = createModel(context, () => SwitchComponentModel());
+    switchModelAutoResume = createModel(context, () => SwitchComponentModel());
     buttonModel1 = createModel(context, () => ButtonModel());
     buttonModel2 = createModel(context, () => ButtonModel());
   }
@@ -72,12 +90,18 @@ class BroadcastDetailsModel extends FlutterFlowModel<BroadcastDetailsWidget> {
   void dispose() {
     autoPauseMinutesTextController?.dispose();
     autoPauseMinutesFocusNode?.dispose();
+    pauseAfterMessagesTextController?.dispose();
+    pauseAfterMessagesFocusNode?.dispose();
+    autoResumeMinutesTextController?.dispose();
+    autoResumeMinutesFocusNode?.dispose();
     textFieldModel.dispose();
     sliderModel.dispose();
     preSendDelaySliderModel.dispose();
     switchModel1.dispose();
     switchModel2.dispose();
     switchModelAutoPause.dispose();
+    switchModelPauseMessages.dispose();
+    switchModelAutoResume.dispose();
     buttonModel1.dispose();
     buttonModel2.dispose();
   }

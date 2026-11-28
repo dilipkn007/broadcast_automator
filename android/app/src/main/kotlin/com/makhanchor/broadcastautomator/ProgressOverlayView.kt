@@ -507,8 +507,9 @@ class ProgressOverlayView(context: Context) : LinearLayout(context) {
 
         if (state.paused) {
             statusDotView.background = roundedBox(0xFFFF9800.toInt(), 0, 0f, 999f)
-            statusTextView.text = "Paused"
-            progressLabelView.text = "Messages Paused"
+            val pauseStatus = state.statusText ?: "Paused"
+            statusTextView.text = pauseStatus
+            progressLabelView.text = pauseStatus
             toggleButton.text = "Resume"
             toggleButton.background = roundedBox(0xFF1B4D3E.toInt(), 0xFF25D366.toInt(), 1f, 12f)
             toggleButton.setTextColor(Color.WHITE)

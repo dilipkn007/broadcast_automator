@@ -33,6 +33,8 @@ data class WaJob(
     val attachmentMime: String?,
     val attachments: List<WaAttachment> = emptyList(),
     val autoPauseMinutes: Int,
+    val pauseAfterMessages: Int = 0,
+    val autoResumeMinutes: Int = 0,
 )
 
 /** Persists the current job + live progress in SharedPreferences. */
@@ -56,6 +58,8 @@ object BroadcastStore {
     private const val KEY_ATTACHMENT_MIME = "job_attachment_mime"
     private const val KEY_ATTACHMENTS = "job_attachments_json"
     private const val KEY_AUTO_PAUSE_MINUTES = "job_auto_pause_minutes"
+    private const val KEY_PAUSE_AFTER_MESSAGES = "job_pause_after_messages"
+    private const val KEY_AUTO_RESUME_MINUTES = "job_auto_resume_minutes"
 
     fun saveJob(
         context: Context,
@@ -72,6 +76,8 @@ object BroadcastStore {
         attachmentMime: String?,
         attachments: List<WaAttachment> = emptyList(),
         autoPauseMinutes: Int,
+        pauseAfterMessages: Int = 0,
+        autoResumeMinutes: Int = 0,
     ) {
         val arr = JSONArray()
         contacts.forEach { c ->
@@ -110,6 +116,8 @@ object BroadcastStore {
             .putString(KEY_ATTACHMENT_MIME, attachmentMime)
             .putString(KEY_ATTACHMENTS, attArr.toString())
             .putInt(KEY_AUTO_PAUSE_MINUTES, autoPauseMinutes)
+            .putInt(KEY_PAUSE_AFTER_MESSAGES, pauseAfterMessages)
+            .putInt(KEY_AUTO_RESUME_MINUTES, autoResumeMinutes)
             .apply()
     }
 
@@ -171,6 +179,8 @@ object BroadcastStore {
             attachmentMime = singleMime,
             attachments = attachments,
             autoPauseMinutes = p.getInt(KEY_AUTO_PAUSE_MINUTES, 0),
+            pauseAfterMessages = p.getInt(KEY_PAUSE_AFTER_MESSAGES, 0),
+            autoResumeMinutes = p.getInt(KEY_AUTO_RESUME_MINUTES, 0),
         )
     }
 

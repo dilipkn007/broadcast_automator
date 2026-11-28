@@ -49,8 +49,8 @@ Tap the button below on your Android device to add Broadcast Automator directly:
 - **🏷️ Dynamic Template Variables**: Insert `{{Name}}`, `{{Phone}}`, or any custom CSV column using the interactive `@` variable picker.
 - **🔁 Retry Failed Messages**: One-tap automated retry for any contacts that failed due to temporary network issues.
 - **➡️ Manual Single-Tap Fallback**: Tap `Send ->` next to any failed recipient to open their pre-filled chat in WhatsApp; automatically returns to Broadcast Automator upon sending.
-- **📂 Flexible Contact Importing**: Import contacts directly from `.csv` files, system contact multi-picker, or quick text paste.
-- **⏱️ Smart Timing & Anti-Spam Controls**: Customizable random delays, pre-send countdowns, and scheduled auto-pauses to protect your WhatsApp account.
+- **📂 Flexible Contact Importing**: Import contacts directly from `.csv` files, system contact multi-picker, or quick text paste with **automatic phone deduplication** and **alphabetical ($A \to Z$) sorting**.
+- **⏱️ Smart Timing & Anti-Spam Controls**: Customizable delays, pre-send countdowns, **pause after $X$ messages**, and **automatic countdown resume** after rest periods to protect your WhatsApp account.
 
 ---
 

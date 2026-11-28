@@ -144,9 +144,12 @@ class WhatsAppAutomationService : AccessibilityService() {
     private var sent = 0
     private var failed = 0
     private var skipped = 0
+    private var messagesSentSinceLastPause = 0
     private var elapsedRunTimeMs = 0L
     private var lastResumeTimeMs = 0L
     private var customStatusText: String? = null
+    private var autoResumeRunnable: Runnable? = null
+    private var autoResumeTargetTimeMs: Long = 0L
 
     private var currentStep: JobStep = JobStep.IDLE
     private var isProcessing = false
@@ -244,6 +247,7 @@ class WhatsAppAutomationService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        cancelAutoResume()
         try {
             unregisterReceiver(receiver)
         } catch (_: Exception) {
@@ -282,6 +286,8 @@ class WhatsAppAutomationService : AccessibilityService() {
         sent = if (resumeIndex > 0) statusObj.optInt("sent", 0) else 0
         failed = if (resumeIndex > 0) statusObj.optInt("failed", 0) else 0
         skipped = if (resumeIndex > 0) statusObj.optInt("skipped", 0) else 0
+        messagesSentSinceLastPause = 0
+        cancelAutoResume()
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
         customStatusText = null
@@ -322,6 +328,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (currentStep == JobStep.CONFIRMING_SEND && j != null && currentIndex < j.contacts.size) {
             val contact = j.contacts[currentIndex]
             sent++
+            messagesSentSinceLastPause++
             markContact(contact, "Sent")
             currentIndex++
             currentStep = JobStep.WAITING_DELAY
@@ -331,8 +338,48 @@ class WhatsAppAutomationService : AccessibilityService() {
         updateOverlay()
     }
 
+    private fun scheduleAutoResume(minutes: Int, prefix: String = "Auto-paused") {
+        cancelAutoResume()
+        if (minutes <= 0) return
+        val durationMs = minutes * 60 * 1000L
+        autoResumeTargetTimeMs = System.currentTimeMillis() + durationMs
+
+        val runnable = object : Runnable {
+            override fun run() {
+                if (!running || !paused || stopped) {
+                    cancelAutoResume()
+                    return
+                }
+                val remainingMs = autoResumeTargetTimeMs - System.currentTimeMillis()
+                if (remainingMs <= 0) {
+                    cancelAutoResume()
+                    customStatusText = "Auto-resuming now..."
+                    updateOverlay()
+                    resumeJob()
+                } else {
+                    val remainingSec = (remainingMs + 999) / 1000
+                    val mins = remainingSec / 60
+                    val secs = remainingSec % 60
+                    val timeStr = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+                    customStatusText = "$prefix • Resumes in $timeStr"
+                    updateOverlay()
+                    mainHandler.postDelayed(this, 1000L)
+                }
+            }
+        }
+        autoResumeRunnable = runnable
+        mainHandler.post(runnable)
+    }
+
+    private fun cancelAutoResume() {
+        autoResumeRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoResumeRunnable = null
+        autoResumeTargetTimeMs = 0L
+    }
+
     private fun pauseBroadcastAndExit() {
         if (!running) return
+        cancelAutoResume()
         pauseJob("Broadcast Paused")
         updateCampaign(mapOf("status" to "Paused", "current_index" to currentIndex))
         hideOverlay()
@@ -341,10 +388,12 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun resumeJob() {
         if (!running || !paused) return
+        cancelAutoResume()
         paused = false
         elapsedRunTimeMs = 0L
         lastResumeTimeMs = System.currentTimeMillis()
         customStatusText = null
+        messagesSentSinceLastPause = 0
         isProcessing = false
 
         // Generate new token for the resumed session
@@ -379,6 +428,7 @@ class WhatsAppAutomationService : AccessibilityService() {
 
     private fun stopJob(quiet: Boolean) {
         if (!running) return
+        cancelAutoResume()
         running = false
         stopped = true
         isProcessing = false
@@ -402,6 +452,7 @@ class WhatsAppAutomationService : AccessibilityService() {
     }
 
     private fun finishJob() {
+        cancelAutoResume()
         running = false
         isProcessing = false
         executionToken++
@@ -427,11 +478,26 @@ class WhatsAppAutomationService : AccessibilityService() {
         if (!running || stopped || paused) return
         if (isProcessing) return
 
-        // Auto pause check
+        // 1. Auto pause by message count check
+        if (j.pauseAfterMessages > 0 && messagesSentSinceLastPause >= j.pauseAfterMessages) {
+            val msgs = j.pauseAfterMessages
+            messagesSentSinceLastPause = 0
+            pauseJob("Auto-paused ($msgs msgs)")
+            if (j.autoResumeMinutes > 0) {
+                scheduleAutoResume(j.autoResumeMinutes, "Auto-paused ($msgs msgs)")
+            }
+            return
+        }
+
+        // 2. Auto pause by time check
         if (j.autoPauseMinutes > 0) {
             val activeTimeMs = elapsedRunTimeMs + (System.currentTimeMillis() - lastResumeTimeMs)
             if (activeTimeMs >= j.autoPauseMinutes * 60 * 1000) {
-                pauseJob("Auto-paused (${j.autoPauseMinutes}m)")
+                val mins = j.autoPauseMinutes
+                pauseJob("Auto-paused (${mins}m)")
+                if (j.autoResumeMinutes > 0) {
+                    scheduleAutoResume(j.autoResumeMinutes, "Auto-paused (${mins}m)")
+                }
                 return
             }
         }
@@ -799,6 +865,7 @@ class WhatsAppAutomationService : AccessibilityService() {
         currentStep = JobStep.WAITING_DELAY
 
         sent++
+        messagesSentSinceLastPause++
         markContact(contact, "Sent")
         currentIndex++
         pushStatus()

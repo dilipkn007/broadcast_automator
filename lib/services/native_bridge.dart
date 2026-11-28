@@ -153,6 +153,8 @@ class NativeBridge {
     String? attachmentMime,
     List<Map<String, String>>? attachments,
     int? autoPauseMinutes,
+    int? pauseAfterMessages,
+    int? autoResumeMinutes,
   }) async {
     await _channel.invokeMethod('saveJob', {
       'campaignId': campaignId,
@@ -168,6 +170,8 @@ class NativeBridge {
       'attachmentMime': attachmentMime,
       'attachments': attachments,
       'autoPauseMinutes': autoPauseMinutes,
+      'pauseAfterMessages': pauseAfterMessages,
+      'autoResumeMinutes': autoResumeMinutes,
     });
   }
 
@@ -327,6 +331,16 @@ ParsedCsvData parseCsvToContactsWithColumns(List<List<String>> rows) {
       uniqueContacts.add(contact);
     }
   }
+
+  // Sort contacts in alphabetical order by name
+  uniqueContacts.sort((a, b) {
+    final nameA = (a['name']?.toString() ?? '').trim().toLowerCase();
+    final nameB = (b['name']?.toString() ?? '').trim().toLowerCase();
+    if (nameA.isEmpty && nameB.isEmpty) return 0;
+    if (nameA.isEmpty) return 1;
+    if (nameB.isEmpty) return -1;
+    return nameA.compareTo(nameB);
+  });
 
   return ParsedCsvData(
     customColumns: customColumns,

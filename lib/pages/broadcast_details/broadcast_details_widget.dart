@@ -95,6 +95,18 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
       if (_model.autoPauseMinutes != null) {
         await FFAppState().prefs.setInt('campaign_auto_pause_minutes_$campaignId', _model.autoPauseMinutes!);
       }
+      if (_model.pauseAfterMessagesEnabled != null) {
+        await FFAppState().prefs.setBool('campaign_pause_messages_enabled_$campaignId', _model.pauseAfterMessagesEnabled!);
+      }
+      if (_model.pauseAfterMessages != null) {
+        await FFAppState().prefs.setInt('campaign_pause_messages_count_$campaignId', _model.pauseAfterMessages!);
+      }
+      if (_model.autoResumeEnabled != null) {
+        await FFAppState().prefs.setBool('campaign_auto_resume_enabled_$campaignId', _model.autoResumeEnabled!);
+      }
+      if (_model.autoResumeMinutes != null) {
+        await FFAppState().prefs.setInt('campaign_auto_resume_minutes_$campaignId', _model.autoResumeMinutes!);
+      }
     } catch (_) {}
   }
 
@@ -344,6 +356,40 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
         }
         if (_model.autoPauseMinutesFocusNode == null) {
           _model.autoPauseMinutesFocusNode = FocusNode();
+        }
+
+        if (_model.pauseAfterMessagesEnabled == null) {
+          _model.pauseAfterMessagesEnabled = FFAppState().prefs.getBool('campaign_pause_messages_enabled_${broadcastDetailsCampaignsRecord.id}') ?? false;
+        }
+
+        if (_model.pauseAfterMessages == null) {
+          _model.pauseAfterMessages = FFAppState().prefs.getInt('campaign_pause_messages_count_${broadcastDetailsCampaignsRecord.id}') ?? 20;
+        }
+
+        if (_model.pauseAfterMessagesTextController == null) {
+          _model.pauseAfterMessagesTextController = TextEditingController(
+            text: (_model.pauseAfterMessages ?? 20).toString(),
+          );
+        }
+        if (_model.pauseAfterMessagesFocusNode == null) {
+          _model.pauseAfterMessagesFocusNode = FocusNode();
+        }
+
+        if (_model.autoResumeEnabled == null) {
+          _model.autoResumeEnabled = FFAppState().prefs.getBool('campaign_auto_resume_enabled_${broadcastDetailsCampaignsRecord.id}') ?? false;
+        }
+
+        if (_model.autoResumeMinutes == null) {
+          _model.autoResumeMinutes = FFAppState().prefs.getInt('campaign_auto_resume_minutes_${broadcastDetailsCampaignsRecord.id}') ?? 5;
+        }
+
+        if (_model.autoResumeMinutesTextController == null) {
+          _model.autoResumeMinutesTextController = TextEditingController(
+            text: (_model.autoResumeMinutes ?? 5).toString(),
+          );
+        }
+        if (_model.autoResumeMinutesFocusNode == null) {
+          _model.autoResumeMinutesFocusNode = FocusNode();
         }
 
         return PopScope(
@@ -1581,7 +1627,7 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                             child:
                                                                 SwitchComponentWidget(
                                                               label:
-                                                                  'Auto-pause campaign',
+                                                                  'Auto-pause after time',
                                                               labelPresent: true,
                                                               variant: 'Android',
                                                               active: _model.autoPauseEnabled ?? false,
@@ -1694,6 +1740,251 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                                         ),
                                                                       ),
                                                                     ),
+                                                                  ],
+                                                                ),
+                                                              ),
+                                                            ),
+                                                          wrapWithModel(
+                                                            model: _model
+                                                                .switchModelPauseMessages,
+                                                            updateCallback: () =>
+                                                                safeSetState(
+                                                                    () {}),
+                                                            child:
+                                                                SwitchComponentWidget(
+                                                              label:
+                                                                  'Pause after messages',
+                                                              labelPresent: true,
+                                                              variant: 'Android',
+                                                              active: _model.pauseAfterMessagesEnabled ?? false,
+                                                              onChanged: (val) {
+                                                                _model.pauseAfterMessagesEnabled = val;
+                                                                FFAppState().prefs.setBool('campaign_pause_messages_enabled_${broadcastDetailsCampaignsRecord.id}', val);
+                                                                safeSetState(() {});
+                                                              },
+                                                            ),
+                                                          ),
+                                                          if (_model.pauseAfterMessagesEnabled ?? false)
+                                                            Padding(
+                                                              padding: EdgeInsetsDirectional.fromSTEB(0.0, 4.0, 0.0, 4.0),
+                                                              child: Container(
+                                                                width: double.infinity,
+                                                                padding: EdgeInsetsDirectional.fromSTEB(14.0, 12.0, 14.0, 12.0),
+                                                                decoration: BoxDecoration(
+                                                                  color: FlutterFlowTheme.of(context).primaryBackground,
+                                                                  borderRadius: BorderRadius.circular(10.0),
+                                                                  border: Border.all(
+                                                                    color: FlutterFlowTheme.of(context).alternate,
+                                                                    width: 1.0,
+                                                                  ),
+                                                                ),
+                                                                child: Column(
+                                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                                  children: [
+                                                                    Row(
+                                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                                                      children: [
+                                                                        Text(
+                                                                          'Pause every',
+                                                                          style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                            font: GoogleFonts.plusJakartaSans(
+                                                                              fontWeight: FontWeight.w600,
+                                                                            ),
+                                                                            color: FlutterFlowTheme.of(context).primaryText,
+                                                                          ),
+                                                                        ),
+                                                                        Row(
+                                                                          mainAxisSize: MainAxisSize.min,
+                                                                          children: [
+                                                                            Container(
+                                                                              width: 70.0,
+                                                                              height: 38.0,
+                                                                              child: TextFormField(
+                                                                                controller: _model.pauseAfterMessagesTextController,
+                                                                                focusNode: _model.pauseAfterMessagesFocusNode,
+                                                                                keyboardType: TextInputType.number,
+                                                                                textAlign: TextAlign.center,
+                                                                                style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                                  font: GoogleFonts.plusJakartaSans(
+                                                                                    fontWeight: FontWeight.bold,
+                                                                                  ),
+                                                                                ),
+                                                                                decoration: InputDecoration(
+                                                                                  isDense: true,
+                                                                                  contentPadding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                                                                                  filled: true,
+                                                                                  fillColor: FlutterFlowTheme.of(context).secondaryBackground,
+                                                                                  enabledBorder: OutlineInputBorder(
+                                                                                    borderRadius: BorderRadius.circular(8.0),
+                                                                                    borderSide: BorderSide(
+                                                                                      color: FlutterFlowTheme.of(context).alternate,
+                                                                                      width: 1.0,
+                                                                                    ),
+                                                                                  ),
+                                                                                  focusedBorder: OutlineInputBorder(
+                                                                                    borderRadius: BorderRadius.circular(8.0),
+                                                                                    borderSide: BorderSide(
+                                                                                      color: FlutterFlowTheme.of(context).primary,
+                                                                                      width: 2.0,
+                                                                                    ),
+                                                                                  ),
+                                                                                ),
+                                                                                onChanged: (val) {
+                                                                                  final count = int.tryParse(val) ?? 0;
+                                                                                  _model.pauseAfterMessages = count;
+                                                                                  FFAppState().prefs.setInt(
+                                                                                    'campaign_pause_messages_count_${broadcastDetailsCampaignsRecord.id}',
+                                                                                    count,
+                                                                                  );
+                                                                                },
+                                                                              ),
+                                                                            ),
+                                                                            SizedBox(width: 8.0),
+                                                                            Text(
+                                                                              'messages',
+                                                                              style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                                font: GoogleFonts.plusJakartaSans(
+                                                                                  color: FlutterFlowTheme.of(context).secondaryText,
+                                                                                  fontWeight: FontWeight.w500,
+                                                                                ),
+                                                                              ),
+                                                                            ),
+                                                                          ],
+                                                                        ),
+                                                                      ],
+                                                                    ),
+                                                                    Padding(
+                                                                      padding: EdgeInsetsDirectional.fromSTEB(0.0, 6.0, 0.0, 8.0),
+                                                                      child: Text(
+                                                                        'Automatically pauses sending after sending this many messages to prevent spam detection.',
+                                                                        style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                                          font: GoogleFonts.plusJakartaSans(
+                                                                            color: FlutterFlowTheme.of(context).secondaryText,
+                                                                            fontSize: 11.0,
+                                                                          ),
+                                                                        ),
+                                                                      ),
+                                                                    ),
+                                                                    Divider(
+                                                                      height: 16.0,
+                                                                      thickness: 1.0,
+                                                                      color: FlutterFlowTheme.of(context).alternate,
+                                                                    ),
+                                                                    wrapWithModel(
+                                                                      model: _model
+                                                                          .switchModelAutoResume,
+                                                                      updateCallback: () =>
+                                                                          safeSetState(
+                                                                              () {}),
+                                                                      child:
+                                                                          SwitchComponentWidget(
+                                                                        label:
+                                                                            'Auto-resume after pause',
+                                                                        labelPresent: true,
+                                                                        variant: 'Android',
+                                                                        active: _model.autoResumeEnabled ?? false,
+                                                                        onChanged: (val) {
+                                                                          _model.autoResumeEnabled = val;
+                                                                          FFAppState().prefs.setBool('campaign_auto_resume_enabled_${broadcastDetailsCampaignsRecord.id}', val);
+                                                                          safeSetState(() {});
+                                                                        },
+                                                                      ),
+                                                                    ),
+                                                                    if (_model.autoResumeEnabled ?? false)
+                                                                      Padding(
+                                                                        padding: EdgeInsetsDirectional.fromSTEB(0.0, 8.0, 0.0, 0.0),
+                                                                        child: Column(
+                                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                                          children: [
+                                                                            Row(
+                                                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                                              crossAxisAlignment: CrossAxisAlignment.center,
+                                                                              children: [
+                                                                                Text(
+                                                                                  'Resume after',
+                                                                                  style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                                    font: GoogleFonts.plusJakartaSans(
+                                                                                      fontWeight: FontWeight.w600,
+                                                                                    ),
+                                                                                    color: FlutterFlowTheme.of(context).primaryText,
+                                                                                  ),
+                                                                                ),
+                                                                                Row(
+                                                                                  mainAxisSize: MainAxisSize.min,
+                                                                                  children: [
+                                                                                    Container(
+                                                                                      width: 70.0,
+                                                                                      height: 38.0,
+                                                                                      child: TextFormField(
+                                                                                        controller: _model.autoResumeMinutesTextController,
+                                                                                        focusNode: _model.autoResumeMinutesFocusNode,
+                                                                                        keyboardType: TextInputType.number,
+                                                                                        textAlign: TextAlign.center,
+                                                                                        style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                                          font: GoogleFonts.plusJakartaSans(
+                                                                                            fontWeight: FontWeight.bold,
+                                                                                          ),
+                                                                                        ),
+                                                                                        decoration: InputDecoration(
+                                                                                          isDense: true,
+                                                                                          contentPadding: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+                                                                                          filled: true,
+                                                                                          fillColor: FlutterFlowTheme.of(context).secondaryBackground,
+                                                                                          enabledBorder: OutlineInputBorder(
+                                                                                            borderRadius: BorderRadius.circular(8.0),
+                                                                                            borderSide: BorderSide(
+                                                                                              color: FlutterFlowTheme.of(context).alternate,
+                                                                                              width: 1.0,
+                                                                                            ),
+                                                                                          ),
+                                                                                          focusedBorder: OutlineInputBorder(
+                                                                                            borderRadius: BorderRadius.circular(8.0),
+                                                                                            borderSide: BorderSide(
+                                                                                              color: FlutterFlowTheme.of(context).primary,
+                                                                                              width: 2.0,
+                                                                                            ),
+                                                                                          ),
+                                                                                        ),
+                                                                                        onChanged: (val) {
+                                                                                          final minutes = int.tryParse(val) ?? 0;
+                                                                                          _model.autoResumeMinutes = minutes;
+                                                                                          FFAppState().prefs.setInt(
+                                                                                            'campaign_auto_resume_minutes_${broadcastDetailsCampaignsRecord.id}',
+                                                                                            minutes,
+                                                                                          );
+                                                                                        },
+                                                                                      ),
+                                                                                    ),
+                                                                                    SizedBox(width: 8.0),
+                                                                                    Text(
+                                                                                      'minutes',
+                                                                                      style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                                                                        font: GoogleFonts.plusJakartaSans(
+                                                                                          color: FlutterFlowTheme.of(context).secondaryText,
+                                                                                          fontWeight: FontWeight.w500,
+                                                                                        ),
+                                                                                      ),
+                                                                                    ),
+                                                                                  ],
+                                                                                ),
+                                                                              ],
+                                                                            ),
+                                                                            Padding(
+                                                                              padding: EdgeInsetsDirectional.fromSTEB(0.0, 6.0, 0.0, 0.0),
+                                                                              child: Text(
+                                                                                'Rest period duration before broadcast resumes sending automatically.',
+                                                                                style: FlutterFlowTheme.of(context).labelSmall.override(
+                                                                                  font: GoogleFonts.plusJakartaSans(
+                                                                                    color: FlutterFlowTheme.of(context).secondaryText,
+                                                                                    fontSize: 11.0,
+                                                                                  ),
+                                                                                ),
+                                                                              ),
+                                                                            ),
+                                                                          ],
+                                                                        ),
+                                                                      ),
                                                                   ],
                                                                 ),
                                                               ),
@@ -2213,6 +2504,12 @@ class _BroadcastDetailsWidgetState extends State<BroadcastDetailsWidget> {
                                                       .toList(),
                                                   autoPauseMinutes: (_model.autoPauseEnabled ?? false)
                                                       ? (_model.autoPauseMinutes ?? 10)
+                                                      : 0,
+                                                  pauseAfterMessages: (_model.pauseAfterMessagesEnabled ?? false)
+                                                      ? (_model.pauseAfterMessages ?? 20)
+                                                      : 0,
+                                                  autoResumeMinutes: ((_model.pauseAfterMessagesEnabled ?? false) && (_model.autoResumeEnabled ?? false))
+                                                      ? (_model.autoResumeMinutes ?? 5)
                                                       : 0,
                                                 );
 

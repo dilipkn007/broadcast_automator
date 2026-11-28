@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '/backend/backend.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
+import '/services/native_bridge.dart';
 import '/index.dart';
 
 /// Shows an interactive bottom sheet to create a new campaign using the contacts
@@ -89,8 +90,28 @@ class _CreateCampaignFromHistoryModalState
   Future<void> _initContacts() async {
     if (widget.preloadedContacts != null &&
         widget.preloadedContacts!.isNotEmpty) {
+      final seen = <String>{};
+      final unique = <Map<String, dynamic>>[];
+      for (final c in widget.preloadedContacts!) {
+        final phone = (c['phone'] ?? '').toString();
+        final norm = normalizeWhatsAppNumber(phone);
+        final name = (c['name'] ?? '').toString().trim();
+        final key = norm.isNotEmpty ? norm : name.toLowerCase();
+        if (key.isNotEmpty && seen.contains(key)) continue;
+        if (key.isNotEmpty) seen.add(key);
+        unique.add(Map<String, dynamic>.from(c));
+      }
+      unique.sort((a, b) {
+        final nameA = (a['name']?.toString() ?? '').trim().toLowerCase();
+        final nameB = (b['name']?.toString() ?? '').trim().toLowerCase();
+        if (nameA.isEmpty && nameB.isEmpty) return 0;
+        if (nameA.isEmpty) return 1;
+        if (nameB.isEmpty) return -1;
+        return nameA.compareTo(nameB);
+      });
+
       setState(() {
-        _allContacts = widget.preloadedContacts!;
+        _allContacts = unique;
         _loading = false;
       });
       return;
@@ -114,14 +135,30 @@ class _CreateCampaignFromHistoryModalState
       );
 
       if (!mounted) return;
+      final seen = <String>{};
+      final unique = <Map<String, dynamic>>[];
+      for (final c in cList) {
+        final norm = normalizeWhatsAppNumber(c.phone);
+        final key = norm.isNotEmpty ? norm : c.name.trim().toLowerCase();
+        if (key.isNotEmpty && seen.contains(key)) continue;
+        if (key.isNotEmpty) seen.add(key);
+        unique.add({
+          'name': c.name.isEmpty ? 'Unknown' : c.name,
+          'phone': norm.isNotEmpty ? norm : c.phone,
+          'status': c.status.isEmpty ? 'Pending' : c.status,
+        });
+      }
+      unique.sort((a, b) {
+        final nameA = (a['name']?.toString() ?? '').trim().toLowerCase();
+        final nameB = (b['name']?.toString() ?? '').trim().toLowerCase();
+        if (nameA.isEmpty && nameB.isEmpty) return 0;
+        if (nameA.isEmpty) return 1;
+        if (nameB.isEmpty) return -1;
+        return nameA.compareTo(nameB);
+      });
+
       setState(() {
-        _allContacts = cList.map((c) {
-          return {
-            'name': c.name.isEmpty ? 'Unknown' : c.name,
-            'phone': c.phone,
-            'status': c.status.isEmpty ? 'Pending' : c.status,
-          };
-        }).toList();
+        _allContacts = unique;
         _loading = false;
       });
     } catch (e) {

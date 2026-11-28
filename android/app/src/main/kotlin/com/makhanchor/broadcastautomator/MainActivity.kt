@@ -271,6 +271,8 @@ class MainActivity : FlutterActivity() {
             attachmentMime = singleMime,
             attachments = attachments,
             autoPauseMinutes = (args["autoPauseMinutes"] as? Number)?.toInt() ?: 0,
+            pauseAfterMessages = (args["pauseAfterMessages"] as? Number)?.toInt() ?: 0,
+            autoResumeMinutes = (args["autoResumeMinutes"] as? Number)?.toInt() ?: 0,
         )
         result.success(true)
     }

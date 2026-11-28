@@ -73,10 +73,35 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
           _customColumns.addAll(campaign.customColumns);
         }
 
+        final seenKeys = <String>{};
+        final uniqueContacts = <ContactsRecord>[];
+        var dupCount = 0;
+
         for (final c in contacts) {
+          final norm = normalizeWhatsAppNumber(c.phone);
+          final key = norm.isNotEmpty ? norm : c.name.trim().toLowerCase();
+          if (key.isNotEmpty && seenKeys.contains(key)) {
+            dupCount++;
+          } else {
+            if (key.isNotEmpty) seenKeys.add(key);
+            uniqueContacts.add(c);
+          }
+        }
+
+        // Sort contacts in alphabetical order by name
+        uniqueContacts.sort((a, b) {
+          final nameA = a.name.trim().toLowerCase();
+          final nameB = b.name.trim().toLowerCase();
+          if (nameA.isEmpty && nameB.isEmpty) return 0;
+          if (nameA.isEmpty) return 1;
+          if (nameB.isEmpty) return -1;
+          return nameA.compareTo(nameB);
+        });
+
+        for (final c in uniqueContacts) {
           final row = _ContactRow();
           row.nameController.text = c.name;
-          row.phoneController.text = c.phone;
+          row.phoneController.text = normalizeWhatsAppNumber(c.phone);
           c.extraFields.forEach((k, v) {
             if (!_customColumns.contains(k)) {
               _customColumns.add(k);
@@ -95,8 +120,9 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
           _nameController.text = '${campaign.name} (Follow-up)';
         }
 
+        final dupSuffix = dupCount > 0 ? ' ($dupCount duplicate${dupCount == 1 ? '' : 's'} removed)' : '';
         showSnackbar(context,
-            'Imported ${contacts.length} contacts from "${campaign?.name ?? "campaign"}"');
+            'Imported ${uniqueContacts.length} contacts from "${campaign?.name ?? "campaign"}"$dupSuffix (sorted A-Z)');
       } else {
         showSnackbar(context, 'No contacts found in selected campaign');
       }
@@ -193,31 +219,102 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         }
       }
 
+      // Collect existing non-empty contacts
       final isSingleEmptyRow = _rows.length == 1 &&
           _rows[0].nameController.text.trim().isEmpty &&
           _rows[0].phoneController.text.trim().isEmpty;
 
-      if (isSingleEmptyRow) {
+      final existingContacts = <Map<String, dynamic>>[];
+      if (!isSingleEmptyRow) {
         for (final row in _rows) {
-          row.dispose();
+          final name = row.nameController.text.trim();
+          final phone = row.phoneController.text.trim();
+          if (name.isEmpty && phone.isEmpty) continue;
+          final extras = <String, String>{};
+          for (final col in _customColumns) {
+            final val = row.extraControllers[col]?.text.trim() ?? '';
+            if (val.isNotEmpty) extras[col] = val;
+          }
+          existingContacts.add({
+            'name': name,
+            'phone': phone,
+            'extra_fields': extras,
+          });
         }
-        _rows.clear();
       }
 
-      for (final c in newContacts) {
-        final row = _ContactRow();
-        row.nameController.text = c['name']?.toString() ?? '';
-        row.phoneController.text = normalizeWhatsAppNumber(c['phone']?.toString() ?? '');
-        final extras = c['extra_fields'];
-        if (extras is Map) {
-          extras.forEach((k, v) {
+      // Dispose old rows before re-populating
+      for (final row in _rows) {
+        row.dispose();
+      }
+      _rows.clear();
+
+      // Deduplicate: merge existing + newContacts by normalized phone (or name if empty)
+      final seenKeys = <String>{};
+      final uniqueContacts = <Map<String, dynamic>>[];
+      var duplicatesCount = 0;
+
+      void processContact(Map<String, dynamic> c) {
+        final name = (c['name']?.toString() ?? '').trim();
+        final rawPhone = (c['phone']?.toString() ?? '').trim();
+        final normPhone = normalizeWhatsAppNumber(rawPhone);
+        final key = normPhone.isNotEmpty ? normPhone : (name.isNotEmpty ? name.toLowerCase() : '');
+
+        if (key.isNotEmpty && seenKeys.contains(key)) {
+          duplicatesCount++;
+          return;
+        }
+        if (key.isNotEmpty) {
+          seenKeys.add(key);
+        }
+
+        final extras = <String, String>{};
+        final cExtras = c['extra_fields'];
+        if (cExtras is Map) {
+          cExtras.forEach((k, v) {
             final colStr = k.toString().trim();
             if (colStr.isNotEmpty) {
               if (!_customColumns.contains(colStr)) {
                 _customColumns.add(colStr);
               }
-              row.ensureController(colStr, v?.toString() ?? '');
+              extras[colStr] = v?.toString() ?? '';
             }
+          });
+        }
+
+        uniqueContacts.add({
+          'name': name,
+          'phone': normPhone.isNotEmpty ? normPhone : rawPhone,
+          'extra_fields': extras,
+        });
+      }
+
+      for (final c in existingContacts) {
+        processContact(c);
+      }
+      for (final c in newContacts) {
+        processContact(c);
+      }
+
+      // Sort contacts in alphabetical order by name
+      uniqueContacts.sort((a, b) {
+        final nameA = (a['name']?.toString() ?? '').trim().toLowerCase();
+        final nameB = (b['name']?.toString() ?? '').trim().toLowerCase();
+        if (nameA.isEmpty && nameB.isEmpty) return 0;
+        if (nameA.isEmpty) return 1;
+        if (nameB.isEmpty) return -1;
+        return nameA.compareTo(nameB);
+      });
+
+      // Populate _rows with sorted, deduplicated contacts
+      for (final c in uniqueContacts) {
+        final row = _ContactRow();
+        row.nameController.text = c['name']?.toString() ?? '';
+        row.phoneController.text = c['phone']?.toString() ?? '';
+        final extras = c['extra_fields'];
+        if (extras is Map) {
+          extras.forEach((k, v) {
+            row.ensureController(k.toString(), v?.toString() ?? '');
           });
         }
         for (final col in _customColumns) {
@@ -226,12 +323,103 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
         _rows.add(row);
       }
 
-      _showAllContacts = _rows.length <= 50;
-    });
+      if (_rows.isEmpty) {
+        _rows.add(_ContactRow());
+      }
 
-    if (mounted) {
-      showSnackbar(context, 'Added ${newContacts.length} contacts from $sourceDescription');
-    }
+      _showAllContacts = _rows.length <= 50;
+
+      if (mounted) {
+        final totalCount = uniqueContacts.length;
+        if (duplicatesCount > 0) {
+          showSnackbar(
+            context,
+            'Imported $totalCount contacts ($duplicatesCount duplicate${duplicatesCount == 1 ? '' : 's'} removed, sorted A-Z)',
+          );
+        } else {
+          showSnackbar(
+            context,
+            'Imported $totalCount contacts from $sourceDescription (sorted A-Z)',
+          );
+        }
+      }
+    });
+  }
+
+  void _deduplicateAndSortCurrentRows() {
+    setState(() {
+      final seen = <String>{};
+      final uniqueContacts = <Map<String, dynamic>>[];
+      var duplicatesCount = 0;
+
+      for (final row in _rows) {
+        final name = row.nameController.text.trim();
+        final phone = row.phoneController.text.trim();
+        if (name.isEmpty && phone.isEmpty) continue;
+
+        final normPhone = normalizeWhatsAppNumber(phone);
+        final key = normPhone.isNotEmpty ? normPhone : name.toLowerCase();
+
+        if (seen.add(key)) {
+          final extras = <String, String>{};
+          for (final col in _customColumns) {
+            final val = row.extraControllers[col]?.text.trim() ?? '';
+            if (val.isNotEmpty) extras[col] = val;
+          }
+          uniqueContacts.add({
+            'name': name,
+            'phone': normPhone.isNotEmpty ? normPhone : phone,
+            'extra_fields': extras,
+          });
+        } else {
+          duplicatesCount++;
+        }
+      }
+
+      uniqueContacts.sort((a, b) {
+        final nameA = (a['name']?.toString() ?? '').trim().toLowerCase();
+        final nameB = (b['name']?.toString() ?? '').trim().toLowerCase();
+        if (nameA.isEmpty && nameB.isEmpty) return 0;
+        if (nameA.isEmpty) return 1;
+        if (nameB.isEmpty) return -1;
+        return nameA.compareTo(nameB);
+      });
+
+      for (final row in _rows) {
+        row.dispose();
+      }
+      _rows.clear();
+
+      if (uniqueContacts.isEmpty) {
+        _rows.add(_ContactRow());
+      } else {
+        for (final c in uniqueContacts) {
+          final row = _ContactRow();
+          row.nameController.text = c['name']?.toString() ?? '';
+          row.phoneController.text = c['phone']?.toString() ?? '';
+          final extras = c['extra_fields'];
+          if (extras is Map) {
+            extras.forEach((k, v) {
+              row.ensureController(k.toString(), v?.toString() ?? '');
+            });
+          }
+          for (final col in _customColumns) {
+            row.ensureController(col);
+          }
+          _rows.add(row);
+        }
+      }
+
+      _showAllContacts = _rows.length <= 50;
+
+      if (mounted) {
+        if (duplicatesCount > 0) {
+          showSnackbar(context, 'Sorted A-Z ($duplicatesCount duplicate${duplicatesCount == 1 ? '' : 's'} removed)');
+        } else {
+          showSnackbar(context, 'Contacts sorted in alphabetical order');
+        }
+      }
+    });
   }
 
   void _openQuickPaste() {
@@ -571,20 +759,46 @@ class _CreateBroadcastWidgetState extends State<CreateBroadcastWidget> {
                   if (_rows.length > 1 ||
                       _rows[0].nameController.text.isNotEmpty ||
                       _rows[0].phoneController.text.isNotEmpty)
-                    TextButton(
-                      onPressed: _clearContacts,
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                      child: Text(
-                        'Clear all',
-                        style: GoogleFonts.inter(
-                          color: FlutterFlowTheme.of(context).error,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w500,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton.icon(
+                          onPressed: _deduplicateAndSortCurrentRows,
+                          icon: Icon(
+                            Icons.sort_by_alpha_rounded,
+                            size: 14.0,
+                            color: FlutterFlowTheme.of(context).primary,
+                          ),
+                          label: Text(
+                            'Sort A-Z',
+                            style: GoogleFonts.inter(
+                              color: FlutterFlowTheme.of(context).primary,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 4.0),
+                        TextButton(
+                          onPressed: _clearContacts,
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: Text(
+                            'Clear all',
+                            style: GoogleFonts.inter(
+                              color: FlutterFlowTheme.of(context).error,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                 ],
               ),
